@@ -1,0 +1,13 @@
+# SONA parity harness
+
+Checks that the Unity C# core (`Assets/SONA/Scripts/Core`) still reproduces the Python prototype.
+
+    powershell -ExecutionPolicy Bypass -File run_parity.ps1
+
+1. `py_reference.py` runs the original Python code (`../../../../Code`, or set `SONA_PY_CODE`)
+   on 7 rooms and saves returns, plans and the rendered audio to `ref/`.
+2. `dotnet run -- cs_out` runs the same rooms through the C# core, plus C#-only checks (Unity room
+   geometry, real-time mixer, gapless repeat, HRTF voice allocation, world anchoring) and writes `cs_out/`.
+3. `compare.py ref cs_out` diffs the two. Expect `C# CHECKS: ALL PASS` and `ALL PASS`.
+
+Needs Python with numpy (your `.sona_env` works) and the .NET 8 SDK.
