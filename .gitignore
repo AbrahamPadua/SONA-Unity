@@ -1,0 +1,85 @@
+# Unity caches, local preferences, and build output
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+/.utmp/
+/*_BurstDebugInformation_DoNotShip/
+/*_BackUpThisFolder_ButDontShipItWithYourGame/
+*.apk
+*.aab
+*.unitypackage
+*.log
+*.tmp
+/sweep.wav
+
+# Generated IDE projects; retain Tools/SonaParity/Parity.csproj
+/.vsconfig
+/*.csproj
+/*.sln
+/*.slnx
+/*.suo
+/*.user
+.vs/
+.vscode/
+.idea/
+.gradle/
+bin/
+obj/
+__pycache__/
+*.py[cod]
+.venv/
+.sona_env/
+
+# Regenerable parity reference data and rendered audio
+/Tools/SonaParity/ref/
+/Tools/SonaParity/cs_out/
+
+# Recovery scenes and unused setup artifacts
+/Assets/_Recovery/
+/Assets/_Recovery.meta
+/Assets/test.unity
+/Assets/test.unity.meta
+/Assets/XR [0-9]*/
+/Assets/XR [0-9]*.meta
+/Assets/XR/Settings [0-9]*/
+/Assets/XR/Settings [0-9]*.meta
+/Assets/XR/APILayers~/
+/Assets/XR/APILayers~.meta
+
+# Local Meta developer connection and publishing credentials
+/Assets/Resources/DevAgentSettings.asset
+/Assets/Resources/DevAgentSettings.asset.meta
+/Assets/Resources/OVRPlatformToolSettings.asset
+/Assets/Resources/OVRPlatformToolSettings.asset.meta
+
+# Environment secrets, signing keys, and their Unity metadata
+.env
+.env.*
+!.env.example
+!.env.sample
+.env*.meta
+*.keystore
+*.keystore.meta
+*.jks
+*.jks.meta
+*.pem
+*.pem.meta
+*.key
+*.key.meta
+*.p12
+*.p12.meta
+*.pfx
+*.pfx.meta
+*.mobileprovision
+*.mobileprovision.meta
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
