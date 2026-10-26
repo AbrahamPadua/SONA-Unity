@@ -159,8 +159,7 @@ The harness is in `Tools/SonaParity` (outside Assets, so Unity ignores it).
   Direct3D 11 while the Android target is active (URP uses half precision then). The SONA floor, wall and
   object materials use `Assets/SONA/Shaders/SonaSimpleLit.shader`, which is URP Simple Lit compiled at
   full precision on Direct3D only; on the Quest it is identical to URP Simple Lit. If you add your own
-  materials and see dots, give them the `SONA/Simple Lit` shader. `Tools/SonaDiagnostics` has the test
-  that measured it.
+  materials and see dots, give them the `SONA/Simple Lit` shader.
 - **Tracking origin must be Floor Level** (the setup menu sets it). The HUD warns if your head
   is under 0.5 m, which usually means Eye Level.
 - Geometry is still X-ray (no occlusion), exactly like the Python prototype.

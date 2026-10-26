@@ -23,7 +23,6 @@ troubleshooting, see [the SONA guide](Assets/SONA/README.md).
 - `Assets/XR`, `Assets/Resources`, `Assets/Oculus`, `Assets/Plugins`: XR, audio, and Android configuration.
 - `Packages`, `ProjectSettings`: pinned dependencies and shared Unity settings.
 - `Tools/SonaParity`: optional checks that compare the C# pipeline with the Python prototype. See the [instructions](Tools/SonaParity/README.md).
-- `Tools/SonaDiagnostics`: source for graphics diagnostics in the Unity editor.
 
 The Unity app runs on its own. To run the full parity checks, you also need the
 Python prototype, Python with NumPy, and the .NET 8 SDK. Set `SONA_PY_CODE` to the
