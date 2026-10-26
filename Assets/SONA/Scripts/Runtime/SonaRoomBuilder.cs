@@ -19,8 +19,6 @@ namespace Sona
     {
         /// <summary>Lit materials (sighted demos and the Scene view).</summary>
         Lit,
-        /// <summary>Dim unlit outline colours, for editing in the dark (Create room).</summary>
-        Ghost,
         /// <summary>Not drawn at all: the dark world. Colliders stay on for the laser.</summary>
         Hidden,
     }
@@ -42,15 +40,10 @@ namespace Sona
         public Material floorMaterial;
         public Material wallMaterial;
         public Material objectMaterial;
-        public Color highlightColor = new Color(0.35f, 0.85f, 1f);
 
         [Header("Dark world")]
-        [Tooltip("Fallback for the ghost view and the revealed challenge box when a lit material is missing (SONA UI).")]
+        [Tooltip("Fallback for the revealed challenge box when a lit material is missing (SONA UI).")]
         public Material unlitMaterial;
-        [Tooltip("Create room in the dark: the room is drawn dim, in these colours, so it can be edited.")]
-        public Color ghostFloorColor = new Color(0.07f, 0.09f, 0.13f);
-        public Color ghostWallColor = new Color(0.13f, 0.16f, 0.23f);
-        public Color ghostObjectColor = new Color(0.42f, 0.23f, 0.08f);
         [Tooltip("Colour of the challenge box once it is revealed in the dark.")]
         public Color revealColor = new Color(1f, 0.55f, 0.16f);
 
@@ -66,7 +59,6 @@ namespace Sona
         readonly List<Part> _parts = new List<Part>();
         List<ObjectSpec> _savedObjects;
         string _mysteryId;
-        string _highlightId;
         bool _visible = true;
         SonaRoomView _view = SonaRoomView.Lit;
         MaterialPropertyBlock _mpb;
@@ -79,7 +71,6 @@ namespace Sona
         }
 
         public RoomLayout Layout { get; private set; }
-        public SonaRoomView View { get { return _view; } }
         public bool ChallengeActive { get; private set; }
         public bool ChallengeRevealed { get; private set; }
 
@@ -147,12 +138,6 @@ namespace Sona
             ApplyRoomChange();
         }
 
-        public void SetHeight(float newHeight)
-        {
-            height = newHeight;
-            ApplyRoomChange();
-        }
-
         void ClampDimensions()
         {
             width = Mathf.Clamp(Mathf.Round(width * 2f) / 2f, (float)SonaRoomModel.MinCustomWidth, (float)SonaRoomModel.MaxCustomWidth);
@@ -202,23 +187,12 @@ namespace Sona
             if (RoomChanged != null) RoomChanged();
         }
 
-        // ------------------------------------------------------------------ objects (create-room mode)
+        // ------------------------------------------------------------------ objects
 
         public GameObject GetObject(string id)
         {
             GameObject go;
             return id != null && _objects.TryGetValue(id, out go) ? go : null;
-        }
-
-        /// <summary>The object id behind a collider, or null for walls, floor and anything else.</summary>
-        public string ObjectIdOf(Collider c)
-        {
-            if (c == null) return null;
-            foreach (KeyValuePair<string, GameObject> kv in _objects)
-            {
-                if (kv.Value != null && (c.gameObject == kv.Value || c.transform.IsChildOf(kv.Value.transform))) return kv.Key;
-            }
-            return null;
         }
 
         /// <summary>World point to scene.py room coordinates (x right, y forward).</summary>
@@ -227,74 +201,6 @@ namespace Sona
             Vector3 local = transform.InverseTransformPoint(world);
             x = local.x + Layout.ListenerX;
             y = local.z + Layout.ListenerY;
-        }
-
-        public ObjectSpec AddObject(ObjectKind kind, Vector3 worldPoint, out string error)
-        {
-            error = null;
-            if (Layout == null) Rebuild();
-            double x, y;
-            WorldToRoom(worldPoint, out x, out y);
-            ObjectSpec o;
-            try
-            {
-                o = SonaRoomModel.AddObject(Layout, kind, x, y);
-            }
-            catch (ArgumentException e)
-            {
-                error = e.Message;
-                return null;
-            }
-            SpawnObject(o);
-            CollectRenderers();
-            ApplyVisibility();
-            NotifyChanged();
-            return o;
-        }
-
-        /// <summary>Drag an object to a floor point (clamped inside the room). Does not raise RoomChanged.</summary>
-        public void MoveObject(string id, Vector3 worldPoint)
-        {
-            ObjectSpec o = Layout != null ? Layout.Find(id) : null;
-            GameObject go = GetObject(id);
-            if (o == null || go == null) return;
-            double x, y;
-            WorldToRoom(worldPoint, out x, out y);
-            o.X = x;
-            o.Y = y;
-            try { SonaRoomModel.ClampObject(Layout.Room, o); } catch (ArgumentException) { }
-            ApplyTransform(go, o);
-        }
-
-        public void RotateObject(string id, float degrees)
-        {
-            ObjectSpec o = Layout != null ? Layout.Find(id) : null;
-            GameObject go = GetObject(id);
-            if (o == null || go == null) return;
-            o.YawDegrees = SonaMath.FloorMod(o.YawDegrees + degrees, 360.0);
-            try { SonaRoomModel.ClampObject(Layout.Room, o); } catch (ArgumentException) { }
-            ApplyTransform(go, o);
-            NotifyChanged();
-        }
-
-        public bool DeleteObject(string id)
-        {
-            ObjectSpec o = Layout != null ? Layout.Find(id) : null;
-            if (o == null) return false;
-            Layout.Objects.Remove(o);
-            DestroyObject(id);
-            CollectRenderers();
-            NotifyChanged();
-            return true;
-        }
-
-        public void ClearObjects()
-        {
-            if (Layout == null) return;
-            Layout.Objects.Clear();
-            foreach (string id in new List<string>(_objects.Keys)) DestroyObject(id);
-            CollectRenderers();
-            NotifyChanged();
         }
 
         /// <summary>Put back the Python starter objects (Box 1 and Panel 1) for the current room.</summary>
@@ -307,13 +213,6 @@ namespace Sona
             Layout.NextBox = fresh.NextBox;
             Layout.NextPanel = fresh.NextPanel;
             BuildAll();
-        }
-
-        public void SetHighlighted(string id)
-        {
-            if (_highlightId == id) return;
-            _highlightId = id;
-            ApplyVisibility();
         }
 
         // ------------------------------------------------------------------ challenge (Python "Random Box")
@@ -386,7 +285,7 @@ namespace Sona
             ApplyVisibility();
         }
 
-        /// <summary>Lit, ghost (dim outline) or hidden. A revealed challenge box always shows.</summary>
+        /// <summary>Lit or hidden. A revealed challenge box always shows.</summary>
         public void SetView(SonaRoomView view)
         {
             _view = view;
@@ -396,7 +295,6 @@ namespace Sona
         void ApplyVisibility()
         {
             GameObject mystery = GetObject(_mysteryId);
-            GameObject highlighted = GetObject(_highlightId);
             Material unlit = unlitMaterial != null ? unlitMaterial : SonaMaterialUtil.FallbackUnlit();
             for (int i = 0; i < _renderers.Count; i++)
             {
@@ -422,14 +320,6 @@ namespace Sona
                 {
                     show = true;
                     mat = LitMaterial(part);
-                    if (highlighted != null && r.gameObject == highlighted) tint = highlightColor;
-                }
-                else if (_view == SonaRoomView.Ghost)
-                {
-                    // The lit material with a dark colour: dim, but shaded, so boxes still read as 3-D.
-                    show = true;
-                    mat = OrFallback(LitMaterial(part), unlit);
-                    tint = highlighted != null && r.gameObject == highlighted ? highlightColor : GhostColor(part);
                 }
                 else
                 {
@@ -474,16 +364,6 @@ namespace Sona
         static Material OrFallback(Material preferred, Material fallback)
         {
             return preferred != null ? preferred : fallback;
-        }
-
-        Color GhostColor(Part part)
-        {
-            switch (part)
-            {
-                case Part.Floor: return ghostFloorColor;
-                case Part.Object: return ghostObjectColor;
-                default: return ghostWallColor;
-            }
         }
 
         void CollectRenderers()
@@ -533,19 +413,6 @@ namespace Sona
             _objects.Clear();
             _renderers.Clear();
             _parts.Clear();
-            _highlightId = null;
-        }
-
-        void DestroyObject(string id)
-        {
-            GameObject go = GetObject(id);
-            _objects.Remove(id);
-            if (_highlightId == id) _highlightId = null;
-            if (go != null)
-            {
-                go.SetActive(false);
-                SonaUnity.SafeDestroy(go);
-            }
         }
 
         GameObject SpawnObject(ObjectSpec o)
@@ -553,14 +420,6 @@ namespace Sona
             GameObject go = Spawn(SonaRoomModel.ObjectPlacement(Layout, o));
             _objects[o.Id] = go;
             return go;
-        }
-
-        void ApplyTransform(GameObject go, ObjectSpec o)
-        {
-            PrimitivePlacement p = SonaRoomModel.ObjectPlacement(Layout, o);
-            go.transform.localPosition = p.LocalPosition.ToVector3();
-            go.transform.localRotation = Quaternion.Euler((float)p.EulerDegrees.X, (float)p.EulerDegrees.Y, (float)p.EulerDegrees.Z);
-            go.transform.localScale = p.Scale.ToVector3();
         }
 
         GameObject Spawn(PrimitivePlacement p)

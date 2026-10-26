@@ -1,15 +1,16 @@
-// SONA Quest port: the control bar. A small floating bar that you can move, fold and close:
+// SONA Quest port: the menu. A floating bar that you can move and close:
 //
-//   [:: SONA] [Explore] [Room] [Sweep] [Tools] [_] [X]
+//   [Move] [Mode] [Trial] [Sweep] [Room] [Help] [Close]
 //
-//   Explore  (mode)  Explore | Challenge | Create room
-//   Room             walls, size, light (dark / lit)
-//   Sweep            sweep now, repeat, speed, wave shape, renderer, pitch, sweep visuals
-//   Tools            what the current mode needs (challenge box, room editing, blackout, ...)
+//   Mode    Explore | Challenge
+//   Trial   next box, reveal, blackout (Next box starts Challenge)
+//   Sweep   sweep now, repeat, speed, visuals; research: renderer, pitch, diagnostics
+//   Room    walls, size, light, reset objects
+//   Help    the controls and what each mode is for (open on first launch)
 //
-// Each tab opens a popup above the bar. To move the bar, hold the trigger (or the left mouse button)
-// on ":: SONA" or on the bar's background and point somewhere else; it keeps facing you. "_" folds it
-// to [:: SONA] [+], "X" closes it, and the left Menu button (Tab) opens it in front of you again.
+// Each tab opens a popup above the bar (press the tab again to close it). To move the bar, hold the
+// trigger (or the left mouse button) on "Move" or on the bar's background and point somewhere else; it
+// keeps facing you. The left Menu button (Tab) opens and closes it.
 using System;
 using System.Collections.Generic;
 using Sona.Core;
@@ -17,7 +18,7 @@ using UnityEngine;
 
 namespace Sona
 {
-    /// <summary>One 3-D push button of the control bar.</summary>
+    /// <summary>One 3-D push button of the menu.</summary>
     public sealed class SonaButton : MonoBehaviour
     {
         public Action OnClick;
@@ -62,6 +63,7 @@ namespace Sona
         public Transform head;
         [Tooltip("Unlit material for buttons and backing (SONA UI).")]
         public Material uiMaterial;
+        [Tooltip("Open the menu, with Help showing, when the app starts.")]
         public bool showOnStart = true;
         [Tooltip("How far in front of you the bar opens (m).")]
         public float openDistance = 0.75f;
@@ -82,25 +84,19 @@ namespace Sona
 
         // Sizes in metres before barScale.
         const float BarH = 0.05f, BtnD = 0.012f, Gap = 0.008f, Pad = 0.008f;
-        const float HandleW = 0.10f, TabW = 0.095f, IconW = 0.045f;
-        const float PopBtnW = 0.12f, PopBtnH = 0.046f, PopLabelW = 0.075f, HintH = 0.03f, HintCharW = 0.0068f;
+        const float HandleW = 0.08f, TabW = 0.095f, CloseW = 0.075f;
+        const float PopBtnW = 0.12f, PopBtnH = 0.046f, PopLabelW = 0.095f;
+        const float TextCharW = 0.008f, TextLineH = 0.015f;
         const float CharSize = 0.0021f;
         const int FontSize = 64;
-        const int TabCount = 4;
-
-        enum BarState
-        {
-            Closed,
-            Minimized,
-            Expanded,
-        }
+        const int TabCount = 5;
+        const int HelpTab = 4;
 
         sealed class PopRow
         {
             public Transform Root;
             public TextMesh Label;
             public Func<string> LabelText;
-            public Func<bool> Shown;
             public readonly List<SonaButton> Buttons = new List<SonaButton>();
         }
 
@@ -108,8 +104,8 @@ namespace Sona
         {
             public Transform Root;
             public Transform Backing;
-            public TextMesh Hint;
-            public Func<string> HintText;
+            public TextMesh Text;
+            public Func<string> TextFunc;
             public readonly List<PopRow> Rows = new List<PopRow>();
         }
 
@@ -118,9 +114,9 @@ namespace Sona
         readonly Popup[] _popups = new Popup[TabCount];
         Transform _root;
         Transform _barBacking;
-        SonaButton _handle, _minimize, _expand, _close;
+        SonaButton _handle, _close;
         Font _font;
-        BarState _state = BarState.Closed;
+        bool _open;
         int _openPopup = -1;
         bool _built;
         bool _userPlaced;
@@ -131,8 +127,7 @@ namespace Sona
         float _grabDistance;
         Vector3 _grabLocal;
 
-        public bool Visible { get { return _state != BarState.Closed; } }
-        public bool Minimized { get { return _state == BarState.Minimized; } }
+        public bool Visible { get { return _open; } }
         public bool Dragging { get { return _dragging; } }
 
         Transform Head
@@ -140,27 +135,29 @@ namespace Sona
             get { return head != null ? head : (Camera.main != null ? Camera.main.transform : null); }
         }
 
-        static float ExpandedWidth
+        static float BarWidth
         {
-            get { return 2f * Pad + HandleW + Gap + TabCount * (TabW + Gap) + IconW + Gap + IconW; }
-        }
-
-        static float MinimizedWidth
-        {
-            get { return 2f * Pad + HandleW + Gap + IconW + Gap + IconW; }
+            get { return 2f * Pad + HandleW + Gap + TabCount * (TabW + Gap) + CloseW; }
         }
 
         void Start()
         {
             _startTime = Time.time;
             EnsureBuilt();
-            if (showOnStart) Open();
-            else SetState(BarState.Closed);
+            if (showOnStart)
+            {
+                Open();
+                ShowPopup(HelpTab);
+            }
+            else
+            {
+                Close();
+            }
         }
 
         void LateUpdate()
         {
-            if (_state == BarState.Closed || _userPlaced || _dragging || Time.time - _startTime > autoPlaceSeconds) return;
+            if (!_open || _userPlaced || _dragging || Time.time - _startTime > autoPlaceSeconds) return;
             Transform h = Head;
             if (h != null && (h.position - _placedFrom).sqrMagnitude > 0.3f * 0.3f) PlaceInFront();
         }
@@ -181,7 +178,7 @@ namespace Sona
         public void Toggle()
         {
             _userPlaced = true;
-            if (_state == BarState.Closed)
+            if (!_open)
             {
                 Open();
                 return;
@@ -197,39 +194,22 @@ namespace Sona
         public void Open()
         {
             EnsureBuilt();
-            SetState(BarState.Expanded);
+            SetOpen(true);
             PlaceInFront();
         }
 
         public void Close()
         {
             EnsureBuilt();
-            SetState(BarState.Closed);
+            SetOpen(false);
         }
 
-        public void Minimize()
+        void SetOpen(bool open)
         {
-            SetState(BarState.Minimized);
-        }
-
-        public void Expand()
-        {
-            SetState(BarState.Expanded);
-        }
-
-        /// <summary>Kept for callers of the old panel: true opens in front of you, false closes.</summary>
-        public void SetVisible(bool visible)
-        {
-            if (visible) Open();
-            else Close();
-        }
-
-        void SetState(BarState state)
-        {
-            _state = state;
+            _open = open;
             _dragging = false;
-            if (state != BarState.Expanded) _openPopup = -1;
-            if (_root != null) _root.gameObject.SetActive(state != BarState.Closed);
+            if (!open) _openPopup = -1;
+            if (_root != null) _root.gameObject.SetActive(open);
             Layout();
         }
 
@@ -289,7 +269,7 @@ namespace Sona
         /// </summary>
         public bool Tick(SonaPointer pointer, bool selectDown, bool selectHeld, bool selectUp)
         {
-            if (_state == BarState.Closed || _root == null)
+            if (!_open || _root == null)
             {
                 _dragging = false;
                 return false;
@@ -359,133 +339,119 @@ namespace Sona
             SonaSweepController c = controller;
             SonaRoomBuilder room = c != null ? c.room : null;
 
-            _handle = MakeButton(_root, () => ":: SONA", null, () => _dragging);
+            _handle = MakeButton(_root, () => "Move", null, () => _dragging);
             _handle.name = "Handle (drag)";
             _handle.NormalColor = handleColor;
 
-            _tabs[0] = MakeButton(_root, () => c != null ? ModeName(c.Mode) : "Mode", () => TogglePopup(0), () => _openPopup == 0);
-            _tabs[1] = MakeButton(_root, () => "Room", () => TogglePopup(1), () => _openPopup == 1);
-            _tabs[2] = MakeButton(_root, () => "Sweep", () => TogglePopup(2), () => _openPopup == 2);
-            _tabs[3] = MakeButton(_root, () => "Tools", () => TogglePopup(3), () => _openPopup == 3);
-            _minimize = MakeButton(_root, () => "_", Minimize, () => false);
-            _expand = MakeButton(_root, () => "+", Expand, () => false);
-            _close = MakeButton(_root, () => "X", Close, () => false);
-            _minimize.name = "Minimize";
-            _expand.name = "Expand";
+            string[] tabNames = { "Mode", "Trial", "Sweep", "Room", "Help" };
+            for (int i = 0; i < TabCount; i++)
+            {
+                int tab = i;
+                _tabs[i] = MakeButton(_root, () => tabNames[tab], () => TogglePopup(tab), () => _openPopup == tab);
+            }
+            _close = MakeButton(_root, () => "Close", Close, () => false);
             _close.name = "Close";
 
             // Mode
             Popup mode = MakePopup("Mode", null);
-            PopRow modes = AddRow(mode, null, null);
+            PopRow modes = AddRow(mode, null);
             AddButton(modes, () => "Explore", () => ChooseMode(SonaMode.Explore), () => c != null && c.Mode == SonaMode.Explore);
             AddButton(modes, () => "Challenge", () => ChooseMode(SonaMode.Challenge), () => c != null && c.Mode == SonaMode.Challenge);
-            AddButton(modes, () => "Create room", () => ChooseMode(SonaMode.CreateRoom), () => c != null && c.Mode == SonaMode.CreateRoom);
             _popups[0] = mode;
+
+            // Trial
+            Popup trial = MakePopup("Trial", () => c != null && c.Mode != SonaMode.Challenge ? "Next box starts Challenge" : "");
+            PopRow box = AddRow(trial, () => "Box");
+            AddButton(box, () => "Next box", () => Do(c.NewChallengeBox), () => false);
+            AddButton(box, () => room != null && room.ChallengeRevealed ? "Hide box" : "Reveal box", () => Do(c.ToggleReveal),
+                      () => room != null && room.ChallengeRevealed);
+            PopRow screen = AddRow(trial, () => "Screen");
+            AddButton(screen, () => "Blackout", () => Do(() => c.SetBlackout(true)), () => false);
+            _popups[1] = trial;
+
+            // Sweep
+            Popup sweep = MakePopup("Sweep", null);
+            PopRow play = AddRow(sweep, () => "Play");
+            AddButton(play, () => "Sweep now", () => Do(c.Trigger), () => false);
+            AddButton(play, () => c != null && c.repeat ? "Repeat: on" : "Repeat: off", () => Do(() => c.SetRepeat(!c.repeat)), () => c != null && c.repeat);
+            PopRow speed = AddRow(sweep, () => c != null ? string.Format("Speed {0:0.00}x", c.waveSpeed) : "Speed");
+            AddButton(speed, () => "Slower", () => Do(() => c.SetWaveSpeed(c.waveSpeed - 0.25f)), () => false);
+            AddButton(speed, () => "Faster", () => Do(() => c.SetWaveSpeed(c.waveSpeed + 0.25f)), () => false);
+            PopRow show = AddRow(sweep, () => "Show");
+            AddButton(show, () => VisualsLabel(c), () => Do(c.ToggleSweepVisuals), () => c != null && c.SweepVisualsShown);
+            PopRow research = AddRow(sweep, () => "Research");
+            AddButton(research, () => c != null && c.renderMode == SonaRenderMode.Hrtf ? "HRTF" : "Stereo", () => Do(c.CycleRenderMode), () => false);
+            AddButton(research, () => c != null && c.elevationToPitch ? "Pitch: height" : "Pitch: fixed", () => Do(c.TogglePitch), () => c != null && c.elevationToPitch);
+            AddButton(research, () => "Diagnostics", () => Do(() => c.showDiagnostics = !c.showDiagnostics), () => c != null && c.showDiagnostics);
+            _popups[2] = sweep;
 
             // Room
             Popup roomPop = MakePopup("Room", null);
-            PopRow walls = AddRow(roomPop, () => "Walls", null);
+            PopRow walls = AddRow(roomPop, () => "Walls");
             AddButton(walls, () => "No walls", () => Do(() => c.SetWalls(WallMode.NoWalls)), () => room != null && room.walls == WallMode.NoWalls);
             AddButton(walls, () => "Open (3)", () => Do(() => c.SetWalls(WallMode.Open)), () => room != null && room.walls == WallMode.Open);
             AddButton(walls, () => "Closed (4)", () => Do(() => c.SetWalls(WallMode.Closed)), () => room != null && room.walls == WallMode.Closed);
-            PopRow size = AddRow(roomPop, () => "Size", null);
+            PopRow size = AddRow(roomPop, () => "Size");
             for (int i = 0; i < SonaRoomBuilder.SizePresets.Length; i++)
             {
                 Vector2 s = SonaRoomBuilder.SizePresets[i];
                 AddButton(size, () => string.Format("{0:0} x {1:0} m", s.x, s.y), () => Do(() => c.SetRoomSize(s.x, s.y)),
                           () => room != null && Mathf.Approximately(room.width, s.x) && Mathf.Approximately(room.depth, s.y));
             }
-            PopRow light = AddRow(roomPop, () => "Light", null);
+            PopRow light = AddRow(roomPop, () => "Light");
             AddButton(light, () => "Dark", () => Do(() => c.SetDarkWorld(true)), () => c != null && c.darkWorld);
             AddButton(light, () => "Lit", () => Do(() => c.SetDarkWorld(false)), () => c != null && !c.darkWorld);
-            _popups[1] = roomPop;
+            PopRow objects = AddRow(roomPop, () => "Objects");
+            AddButton(objects, () => "Reset", () => Do(c.ResetObjects), () => false);
+            _popups[3] = roomPop;
 
-            // Sweep
-            Popup sweep = MakePopup("Sweep", null);
-            PopRow play = AddRow(sweep, () => "Play", null);
-            AddButton(play, () => "Sweep (A)", () => Do(c.Trigger), () => false);
-            AddButton(play, () => c != null && c.repeat ? "Repeat: ON" : "Repeat: off", () => Do(() => c.SetRepeat(!c.repeat)), () => c != null && c.repeat);
-            AddButton(play, () => c != null ? string.Format("Speed {0:0.00}x", c.waveSpeed) : "-", () => Do(c.CycleWaveSpeed), () => false);
-            PopRow sound = AddRow(sweep, () => "Sound", null);
-            AddButton(sound, () => c != null ? ShortRenderer(c.renderMode) : "-", () => Do(c.CycleRenderMode), () => false);
-            AddButton(sound, () => c != null && c.elevationToPitch ? "Pitch: elev" : "Pitch: fixed", () => Do(c.TogglePitch), () => c != null && c.elevationToPitch);
-            AddButton(sound, () => c != null && c.sphericalWave ? "Wave: sphere" : "Wave: cylinder", () => Do(c.ToggleSphericalWave), () => c != null && c.sphericalWave);
-            PopRow show = AddRow(sweep, () => "Show", null);
-            AddButton(show, () => VisualsLabel(c), () => Do(c.ToggleSweepVisuals), () => c != null && c.SweepVisualsShown);
-            _popups[2] = sweep;
-
-            // Tools (depends on the mode)
-            Popup tools = MakePopup("Tools", () => c != null ? c.PanelHint : "");
-            PopRow explore = AddRow(tools, () => "Explore", () => c != null && c.Mode == SonaMode.Explore);
-            AddButton(explore, () => "Reset objects", () => Do(c.ResetObjects), () => false);
-            AddButton(explore, () => "Blackout", () => Do(() => c.SetBlackout(true)), () => false);
-
-            PopRow trial = AddRow(tools, () => "Trial", () => c != null && c.Mode == SonaMode.Challenge);
-            AddButton(trial, () => "New box (X)", () => Do(c.NewChallengeBox), () => false);
-            AddButton(trial, () => room != null && room.ChallengeRevealed ? "Hide box (Y)" : "Reveal (Y)", () => Do(c.ToggleReveal),
-                      () => room != null && room.ChallengeRevealed);
-            AddButton(trial, () => "Blackout", () => Do(() => c.SetBlackout(true)), () => false);
-
-            PopRow objects = AddRow(tools, () => "Objects", () => c != null && c.Mode == SonaMode.CreateRoom);
-            AddButton(objects, () => "Add box", () => Do(() => c.AddObject(ObjectKind.Box)), () => false);
-            AddButton(objects, () => "Add panel", () => Do(() => c.AddObject(ObjectKind.Panel)), () => false);
-            AddButton(objects, () => "Rotate 15°", () => Do(c.RotateSelected), () => false);
-            AddButton(objects, () => "Delete", () => Do(c.DeleteSelected), () => false);
-
-            PopRow footprint = AddRow(tools, () => room != null ? string.Format("{0:0.#}x{1:0.#}", room.width, room.depth) : "",
-                                      () => c != null && c.Mode == SonaMode.CreateRoom);
-            AddButton(footprint, () => "Width -", () => Do(() => c.ChangeRoomSize(-0.5f, 0f, 0f)), () => false);
-            AddButton(footprint, () => "Width +", () => Do(() => c.ChangeRoomSize(0.5f, 0f, 0f)), () => false);
-            AddButton(footprint, () => "Depth -", () => Do(() => c.ChangeRoomSize(0f, -0.5f, 0f)), () => false);
-            AddButton(footprint, () => "Depth +", () => Do(() => c.ChangeRoomSize(0f, 0.5f, 0f)), () => false);
-
-            PopRow heightRow = AddRow(tools, () => room != null ? string.Format("h {0:0.#} m", room.height) : "",
-                                      () => c != null && c.Mode == SonaMode.CreateRoom);
-            AddButton(heightRow, () => "Height -", () => Do(() => c.ChangeRoomSize(0f, 0f, -0.5f)), () => false);
-            AddButton(heightRow, () => "Height +", () => Do(() => c.ChangeRoomSize(0f, 0f, 0.5f)), () => false);
-            AddButton(heightRow, () => "Clear all", () => Do(c.ClearObjects), () => false);
-            AddButton(heightRow, () => "Reset", () => Do(c.ResetObjects), () => false);
-            _popups[3] = tools;
+            // Help
+            _popups[HelpTab] = MakePopup("Help", HelpText);
 
             Layout();
         }
 
+        static string HelpText()
+        {
+            bool xr = UnityEngine.XR.XRSettings.isDeviceActive;
+            string a = xr ? "A" : "Space", trigger = xr ? "Trigger" : "Click", menu = xr ? "Menu" : "Tab";
+            string text =
+                "CONTROLS\n" +
+                a + ":  send a sweep. Each surface sounds when the wave reaches it,\n" +
+                "    so later sounds are farther away.\n" +
+                trigger + ":  press the button you point at. In Challenge, point at\n" +
+                "    the floor where you think the box is to guess, then again\n" +
+                "    for the next box.\n" +
+                menu + ":  open or close this menu. It also ends blackout.\n" +
+                "\n" +
+                "MODES\n" +
+                "Explore:  sweep and listen. Gold dots show what you heard.\n" +
+                "Challenge:  a hidden box. Find it by ear, then guess.\n" +
+                "    Close the menu before guessing.";
+            if (!xr) text += "\n\nDesktop: hold the right mouse button to look, W A S D to walk.";
+            return text;
+        }
+
         void TogglePopup(int index)
         {
-            _openPopup = _openPopup == index ? -1 : index;
+            ShowPopup(_openPopup == index ? -1 : index);
+        }
+
+        void ShowPopup(int index)
+        {
+            _openPopup = index;
             Layout();
         }
 
         void ChooseMode(SonaMode mode)
         {
             if (controller != null) controller.SetMode(mode);
-            _openPopup = -1;
-            Layout();
+            ShowPopup(-1);
         }
 
         static void Do(Action action)
         {
             if (action != null) action();
-        }
-
-        static string ModeName(SonaMode m)
-        {
-            switch (m)
-            {
-                case SonaMode.Challenge: return "Challenge";
-                case SonaMode.CreateRoom: return "Create";
-                default: return "Explore";
-            }
-        }
-
-        static string ShortRenderer(SonaRenderMode m)
-        {
-            switch (m)
-            {
-                case SonaRenderMode.StereoLiveHead: return "Stereo live";
-                case SonaRenderMode.StereoFrozenPython: return "Stereo frozen";
-                default: return "HRTF";
-            }
         }
 
         static string VisualsLabel(SonaSweepController c)
@@ -509,20 +475,20 @@ namespace Sona
             return back.transform;
         }
 
-        Popup MakePopup(string name, Func<string> hint)
+        Popup MakePopup(string name, Func<string> text)
         {
-            var p = new Popup { HintText = hint };
+            var p = new Popup { TextFunc = text };
             p.Root = new GameObject("Popup " + name).transform;
             p.Root.SetParent(_root, false);
             p.Backing = MakeBacking("Popup Backing", p.Root);
-            if (hint != null) p.Hint = MakeText("Hint", p.Root, CharSize * 0.85f, TextAnchor.MiddleCenter, labelColor);
+            if (text != null) p.Text = MakeText("Text", p.Root, CharSize, TextAnchor.UpperLeft, labelColor);
             p.Root.gameObject.SetActive(false);
             return p;
         }
 
-        PopRow AddRow(Popup popup, Func<string> label, Func<bool> shown)
+        PopRow AddRow(Popup popup, Func<string> label)
         {
-            var row = new PopRow { LabelText = label, Shown = shown };
+            var row = new PopRow { LabelText = label };
             row.Root = new GameObject("Row " + popup.Rows.Count).transform;
             row.Root.SetParent(popup.Root, false);
             if (label != null) row.Label = MakeText("Label", row.Root, CharSize, TextAnchor.MiddleLeft, labelColor);
@@ -565,7 +531,7 @@ namespace Sona
             t.fontSize = FontSize;
             t.characterSize = charSize;
             t.anchor = anchor;
-            t.alignment = anchor == TextAnchor.MiddleLeft ? TextAlignment.Left : TextAlignment.Center;
+            t.alignment = anchor == TextAnchor.MiddleCenter ? TextAlignment.Center : TextAlignment.Left;
             t.color = color;
             if (_font != null) go.GetComponent<MeshRenderer>().sharedMaterial = _font.material;
             return t;
@@ -578,55 +544,32 @@ namespace Sona
             b.Text.transform.localPosition = new Vector3(x, y, -BtnD * 0.75f);
         }
 
-        static void SetActive(SonaButton b, bool on)
-        {
-            if (b.gameObject.activeSelf != on) b.gameObject.SetActive(on);
-            if (b.Text.gameObject.activeSelf != on) b.Text.gameObject.SetActive(on);
-        }
-
         // ------------------------------------------------------------------ layout
 
         void Layout()
         {
             if (_root == null) return;
-            bool expanded = _state == BarState.Expanded;
-            float left = -ExpandedWidth / 2f;   // the left end stays put when the bar folds
+            float left = -BarWidth / 2f;
 
             float x = left + Pad;
             Place(_handle, x + HandleW / 2f, 0f, HandleW, BarH);
             x += HandleW + Gap;
             for (int i = 0; i < TabCount; i++)
             {
-                SetActive(_tabs[i], expanded);
-                if (expanded)
-                {
-                    Place(_tabs[i], x + TabW / 2f, 0f, TabW, BarH);
-                    x += TabW + Gap;
-                }
+                Place(_tabs[i], x + TabW / 2f, 0f, TabW, BarH);
+                x += TabW + Gap;
             }
-            SetActive(_minimize, expanded);
-            SetActive(_expand, !expanded);
-            if (expanded)
-            {
-                Place(_minimize, x + IconW / 2f, 0f, IconW, BarH);
-            }
-            else
-            {
-                Place(_expand, x + IconW / 2f, 0f, IconW, BarH);
-            }
-            x += IconW + Gap;
-            Place(_close, x + IconW / 2f, 0f, IconW, BarH);
+            Place(_close, x + CloseW / 2f, 0f, CloseW, BarH);
 
-            float barWidth = expanded ? ExpandedWidth : MinimizedWidth;
-            _barBacking.localPosition = new Vector3(left + barWidth / 2f, 0f, BtnD);
-            _barBacking.localScale = new Vector3(barWidth, BarH + 2f * Pad, 0.006f);
+            _barBacking.localPosition = new Vector3(0f, 0f, BtnD);
+            _barBacking.localScale = new Vector3(BarWidth, BarH + 2f * Pad, 0.006f);
 
             for (int i = 0; i < TabCount; i++)
             {
                 Popup p = _popups[i];
-                bool open = expanded && _openPopup == i;
+                bool open = _open && _openPopup == i;
                 if (p.Root.gameObject.activeSelf != open) p.Root.gameObject.SetActive(open);
-                if (open) LayoutPopup(p, _tabs[i].transform.localPosition.x - TabW / 2f, left, ExpandedWidth);
+                if (open) LayoutPopup(p, _tabs[i].transform.localPosition.x - TabW / 2f, left, BarWidth);
             }
 
             for (int i = 0; i < _buttons.Count; i++)
@@ -637,25 +580,28 @@ namespace Sona
 
         void LayoutPopup(Popup p, float tabLeft, float barLeft, float barWidth)
         {
-            int rows = 0, cols = 0;
+            int rows = p.Rows.Count, cols = 0;
             bool labels = false;
-            for (int r = 0; r < p.Rows.Count; r++)
+            for (int r = 0; r < rows; r++)
             {
-                PopRow row = p.Rows[r];
-                bool shown = row.Shown == null || row.Shown();
-                if (row.Root.gameObject.activeSelf != shown) row.Root.gameObject.SetActive(shown);
-                if (!shown) continue;
-                rows++;
-                cols = Mathf.Max(cols, row.Buttons.Count);
-                if (row.Label != null) labels = true;
+                cols = Mathf.Max(cols, p.Rows[r].Buttons.Count);
+                if (p.Rows[r].Label != null) labels = true;
             }
-            string hint = p.HintText != null ? p.HintText() : null;
-            bool hasHint = p.Hint != null && !string.IsNullOrEmpty(hint);
+            string text = p.TextFunc != null ? p.TextFunc() : null;
+            bool hasText = p.Text != null && !string.IsNullOrEmpty(text);
+            int lines = 0, longest = 0;
+            if (hasText)
+            {
+                string[] split = text.Split('\n');
+                lines = split.Length;
+                for (int i = 0; i < split.Length; i++) longest = Mathf.Max(longest, split[i].Length);
+            }
+            float textH = hasText ? lines * TextLineH + Pad : 0f;
 
             float labelW = labels ? PopLabelW : 0f;
             float width = 2f * Pad + labelW + cols * PopBtnW + Mathf.Max(0, cols - 1) * Gap;
-            if (hasHint) width = Mathf.Max(width, 2f * Pad + hint.Length * HintCharW);
-            float height = 2f * Pad + rows * PopBtnH + Mathf.Max(0, rows - 1) * Gap + (hasHint ? HintH : 0f);
+            if (hasText) width = Mathf.Max(width, 2f * Pad + longest * TextCharW);
+            float height = 2f * Pad + rows * PopBtnH + Mathf.Max(0, rows - 1) * Gap + textH;
 
             // Drop-down style: start under the tab, but stay within the bar's width when possible.
             float left = tabLeft;
@@ -671,14 +617,13 @@ namespace Sona
             float bottom = BarH / 2f + Pad + Gap;   // just above the bar
 
             float y = bottom + height - Pad - PopBtnH / 2f;
-            for (int r = 0; r < p.Rows.Count; r++)
+            for (int r = 0; r < rows; r++)
             {
                 PopRow row = p.Rows[r];
-                if (!row.Root.gameObject.activeSelf) continue;
                 if (row.Label != null)
                 {
-                    string text = row.LabelText != null ? row.LabelText() : "";
-                    if (row.Label.text != text) row.Label.text = text;
+                    string label = row.LabelText != null ? row.LabelText() : "";
+                    if (row.Label.text != label) row.Label.text = label;
                     row.Label.transform.localPosition = new Vector3(left + Pad, y, -BtnD);
                 }
                 for (int b = 0; b < row.Buttons.Count; b++)
@@ -689,13 +634,13 @@ namespace Sona
                 y -= PopBtnH + Gap;
             }
 
-            if (p.Hint != null)
+            if (p.Text != null)
             {
-                if (p.Hint.gameObject.activeSelf != hasHint) p.Hint.gameObject.SetActive(hasHint);
-                if (hasHint)
+                if (p.Text.gameObject.activeSelf != hasText) p.Text.gameObject.SetActive(hasText);
+                if (hasText)
                 {
-                    if (p.Hint.text != hint) p.Hint.text = hint;
-                    p.Hint.transform.localPosition = new Vector3(left + width / 2f, bottom + Pad + HintH * 0.4f, -BtnD);
+                    if (p.Text.text != text) p.Text.text = text;
+                    p.Text.transform.localPosition = new Vector3(left + Pad, bottom + Pad + textH - Pad / 2f, -BtnD);
                 }
             }
 

@@ -21,103 +21,103 @@ head pose + SonaSurfaces --frontend--> Return3D[] --encoder--> RenderPlan --rend
    - a 5 x 6 x 3 m room with **no walls** (floor only) plus Box 1 and Panel 1, placed so you start
      where the Python listener stood, facing +Z,
    - the SONA controller, both renderers, the wave visualizer, the HUD, the laser pointer and the
-     control bar; the scene is first in the build list.
+     menu; the scene is first in the build list.
 4. **Meta > Tools > Project Setup Tool**, Android tab, **Fix All**.
 5. Plug in the Quest, **File > Build Profiles > Android (Meta Quest)**, **Build And Run**.
 
-**Testing in the editor without a headset:** press Play. The camera lifts to 1.6 m; hold the right
-mouse button to look around, W/A/S/D to walk, left-click the control bar, Space to sweep.
-
-## The dark world
-
-You stand in pitch black: no sky, no lit room. What you can see:
-
-- **The sweep** (Explore and Create room): every surface point flashes gold when the wave reaches it
-  (brighter = louder in the mix, floor points dimmer), then glows cyan and fades out over 2.5 s; a ring on
-  the floor shows the wavefront. **Never shown in Challenge**, so the box can only be found by ear.
-  Turn it off for sound-only training with Sweep > Visuals.
-- **Create room** draws the room dim and shaded (walls, floor, objects) so you can edit it; the selected
-  object is cyan.
-- **Challenge**: nothing until you guess; then the box appears in bright orange next to your green guess
-  marker.
-- The control bar, the laser and the status text (above eye level).
-
-Room > Light > **Lit** shows the lit room for sighted demos; Blackout hides everything, the bar included.
-The settings are on the **SONA Sweep Controller** (View: Dark World, Show Sweep Visuals) and the
-**SONA Wave Visualizer** (dot size, flash, afterglow, brightness).
-
-## Control bar
-
-```
-[:: SONA] [Explore] [Room] [Sweep] [Tools] [_] [X]
-```
-
-A small bar that opens below eye level in front of you (for the first few seconds it re-centres itself
-while head tracking starts). Point with the right controller and pull the **right trigger** (or
-left-click) to press a button.
-
-- **Move it**: hold the trigger on `:: SONA` (or the bar's background) and point somewhere else; it
-  follows the laser at the same distance and keeps facing you.
-- **Fold it**: `_` shrinks it to `:: SONA [+] [X]`; `+` opens it again.
-- **Close it**: `X`. The **left Menu button** (Tab) opens it in front of you again; pressed while the bar
-  is open it closes it, or brings it back if you walked away from it.
-
-Each tab opens a popup above the bar (press the tab again to close it):
-
-| Tab | Contents |
-|---|---|
-| Mode (shows the current one) | Explore, Challenge, Create room |
-| Room | Walls: no walls (default), open (3), closed (4). Size: 4 x 4, 5 x 6, 8 x 10 m. Light: dark (default), lit |
-| Sweep | Sweep now, repeat, wave speed, renderer, pitch, wave shape (cylinder/sphere), sweep visuals on/off |
-| Tools | What the mode needs (below) |
-
-Objects stay where they are when you change walls or size (they are clamped inside the room).
-
-- **Explore** tools: Reset objects (Box 1 + Panel 1), Blackout.
-- **Challenge**: replaces the objects with one hidden 1 x 1 x 1 m box at least 1.5 m away (the
-  Python Random Box). Sweep, then point at the floor where you think it is and pull the trigger: the
-  box is revealed and the HUD shows the error (metres, bearing, distance). Every guess is appended
-  to `sona_challenge_log.csv` in `Application.persistentDataPath` (on the Quest:
-  `Android/data/<package>/files/`, readable from Meta Quest Developer Hub). Tools: New box (X),
-  Reveal (Y), Blackout. Leaving Challenge brings your objects back.
-- **Create room** tools: Add box, Add panel, Rotate 15 degrees, Delete, Width/Depth/Height in 0.5 m steps,
-  Clear all, Reset. Hold the trigger on a box or panel to drag it along the floor.
+**Testing in the editor without a headset:** press Play. The camera lifts to 1.6 m. Hold the right
+mouse button to look around, use W/A/S/D to walk, click menu buttons, press Space to sweep and Tab
+to open or close the menu.
 
 ## Controls
 
+The controller uses three buttons. Everything else is in the menu.
+
 | Quest | Keyboard / mouse | Action |
 |---|---|---|
-| Right trigger | Left click | Press bar buttons, move the bar, drag objects, place a guess |
-| Left Menu | Tab | Open/close the control bar (or bring it back in front of you) |
-| Right A | Space | Trigger sweep (restarts any sweep) |
-| Right B | R | Repeat on/off (each cycle re-pings from your current pose) |
-| Right stick up/down | Up/Down | Wave speed 0.5x to 2.0x in 0.25 steps |
-| Right stick click | M | Renderer: Stereo live head, Stereo frozen (Python), HRTF |
-| Left X | N | Challenge: new hidden box |
-| Left Y | V | Reveal/hide the box |
-| Left stick left/right | [ ] | Wall layout: no walls, open, closed |
-| Left stick click | P | Elevation to pitch on/off |
-| Left trigger | B | Blackout: hide all visuals for blind trials |
+| Right A | Space | Sweep (restarts any sweep) |
+| Right trigger | Left click | Press the menu button you point at. In Challenge, point at the floor to guess, then pull again for the next box |
+| Left Menu | Tab | Open or close the menu. It also ends blackout |
+
+While the menu is open the trigger only works on the menu, so a missed button never counts as a
+guess. Close the menu before guessing.
+
+## The HUD
+
+Floating text above eye level, in three parts:
+
+- a status line: the mode, and in Challenge the trial number and how many sweeps you used;
+- your last result in Challenge, or the latest message for a few seconds;
+- a hint for what to press next, with the buttons of the device you are using.
+
+Researcher numbers (renderer, room, returns, compute time, HRTF voices) appear only with
+Sweep > Research > Diagnostics.
+
+## The dark world
+
+You stand in pitch black: no sky and no lit room. What you can see:
+
+- **The sweep** (Explore): every surface point flashes gold when the wave reaches it (brighter means
+  louder in the mix, floor points dimmer), then glows cyan and fades out over 2.5 s. A ring on the
+  floor shows the wavefront. Challenge never shows it, so you find the box by ear.
+  Turn it off for sound-only training with Sweep > Show > Visuals.
+- **Challenge**: nothing until you guess; then the box appears in bright orange next to your green
+  guess marker.
+- The menu, the laser and the HUD.
+
+Room > Light > **Lit** shows the lit room for sighted demos. Trial > **Blackout** hides everything,
+the menu included; press Menu (Tab) to end it. The settings are on the **SONA Sweep Controller**
+(View: Dark World, Show Sweep Visuals) and the **SONA Wave Visualizer** (dot size, flash, afterglow,
+brightness).
+
+## The menu
+
+```
+[Move] [Mode] [Trial] [Sweep] [Room] [Help] [Close]
+```
+
+The menu opens below eye level in front of you, with Help showing on first launch. For the first
+few seconds it re-centres itself while head tracking starts. To move it, hold the trigger on
+`Move` (or the bar's background) and point somewhere else; it follows the laser at the same
+distance and keeps facing you. Menu (Tab) opens it in front of you again, or brings it back if you
+walked away from it.
+
+Each tab opens a popup above the bar; press the tab again to close it.
+
+| Tab | Contents |
+|---|---|
+| Mode | Explore, Challenge |
+| Trial | Next box, Reveal box, Blackout. Next box starts Challenge if you are in Explore |
+| Sweep | Sweep now, Repeat, Slower/Faster (0.5x to 2x). Research row: renderer (Stereo or HRTF), pitch (follows height or fixed), Diagnostics |
+| Room | Walls: no walls (default), open (3), closed (4). Size: 4 x 4, 5 x 6, 8 x 10 m. Light: dark (default), lit. Objects: Reset |
+| Help | The controls and what each mode is for |
+
+Objects stay where they are when you change walls or size (they are clamped inside the room).
+
+**Challenge** replaces the objects with one hidden 1 x 1 x 1 m box at least 1.5 m away (the Python
+Random Box). Sweep, close the menu, then point at the floor where you think the box is and pull the
+trigger. The box is revealed and the HUD shows how far off you were, with the bearing and distance
+errors. Pull the trigger again for the next box. Every guess is appended to
+`sona_challenge_log.csv` in `Application.persistentDataPath` (on the Quest:
+`Android/data/<package>/files/`, readable from Meta Quest Developer Hub). Leaving Challenge brings
+your objects back.
 
 All encoder, grain and clustering parameters are on the **SONA Sweep Controller** component,
 with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s grains, and so on).
 
-## The three renderers
+## The two renderers
 
-- **Stereo, live head** (default): the Python grains and ITD/ILD panning, but each grain is aimed
-  with your head pose at the moment it starts, so the scene stays fixed in the world while you
-  turn (plan step 12).
-- **Stereo, frozen (Python)**: azimuths fixed at ping time. Sample-identical to the Python render,
-  so it rotates with your head. Use it as the A/B baseline for step 12.
+- **Stereo** (default): the Python grains and ITD/ILD panning, but each grain is aimed with your
+  head pose at the moment it starts, so the scene stays fixed in the world while you turn.
 - **HRTF**: grains are clustered (same 60 ms slot + 30 degree sector + elevation band) and played
   from their real world positions through the Meta XR Audio spatializer, so elevation and
-  front/back come from a measured HRTF. Toggle pitch (P / left stick click) for step 13:
-  "HRTF only" vs "HRTF + elevation to pitch". Meta XR Audio renders at most 64 voices, so the
-  clusterer widens its time slots until a sweep fits in 56; the HUD shows clusters, voices and
+  front/back come from a measured HRTF. Set pitch to fixed (Sweep > Research) to compare
+  "HRTF only" with "HRTF + height to pitch". Meta XR Audio renders at most 64 voices, so the
+  clusterer widens its time slots until a sweep fits in 56; Diagnostics shows clusters, voices and
   anything dropped.
 
-**Spherical wave** (step 14): tick `Spherical Wave` on the controller. Off is the Python
-cylindrical wave (timing from horizontal distance).
+**Spherical wave**: tick `Spherical Wave` on the controller. Off is the Python cylindrical wave
+(timing from horizontal distance).
 
 ## Mapping from the Python files
 
@@ -143,8 +143,8 @@ rotated objects, at 0.5x, 1x and 1.5x speed):
 - returns and render plans match to about 1e-15;
 - the offline render is bit-identical to `GranularBinauralSpatializer.render` (max diff 0.0),
   and **SONA > Export Python-Parity sweep.wav** writes the same samples as `python render.py`;
-- the real-time mixer matches the Python buffer within 1.5e-6 (float32), and its gapless repeat
-  matches the Python loop;
+- the real-time mixer matches the Python buffer within 1.5e-6 (float32) with head tracking off,
+  and its gapless repeat matches the Python loop;
 - the room builder's Unity geometry reproduces scene.py's surfaces to 1e-15 m;
 - turning the head right moves a straight-ahead source to the left ear in live mode;
 - HRTF voice allocation fits every test room in 56 voices with nothing dropped, including

@@ -1,8 +1,8 @@
 # SONA for Meta Quest
 
 SONA is a Unity port of the echolocation prototype for Meta Quest. It uses head
-tracking for spatial audio, with exploration and challenge modes and a virtual
-room you can edit.
+tracking for spatial audio. In Explore you send sweeps and listen; in Challenge
+you find a hidden box by ear and guess where it is.
 
 ## Open and run
 

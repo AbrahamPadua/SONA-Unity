@@ -8,11 +8,10 @@
 // Timing (wave) uses horizontal distance from the head; direction uses the full 3-D vector;
 // pitch uses gravity-referenced elevation, exactly as in the Python prototype.
 //
-// Modes (control bar): Explore (listen), Challenge (find a hidden box, guess with the laser)
-// and Create room (resize the room, add/drag/rotate/delete boxes and panels).
+// Modes (menu): Explore (listen) and Challenge (find a hidden box, guess with the laser).
 //
-// View: the world is pitch black. The sweep is drawn as glowing points in Explore and Create room
-// (never in Challenge); Create room also shows a dim outline of the room so it can be edited.
+// View: the world is pitch black. The sweep is drawn as glowing points in Explore (never in Challenge).
+// The HUD shows a status line, the latest message and a hint for the next step.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -29,18 +28,15 @@ namespace Sona
     public enum SonaRenderMode
     {
         /// <summary>Python grains + ITD/ILD, each grain aimed with the live head pose (world-anchored).</summary>
-        StereoLiveHead,
-        /// <summary>Python grains + ITD/ILD with ping-time azimuths: sample-identical to the Python render.</summary>
-        StereoFrozenPython,
+        StereoLiveHead = 0,
         /// <summary>Clustered grains from their world positions through the HRTF spatializer (Meta XR Audio).</summary>
-        Hrtf,
+        Hrtf = 2,   // keeps the value saved in scenes from before the frozen-Python renderer was removed
     }
 
     public enum SonaMode
     {
         Explore,
         Challenge,
-        CreateRoom,
     }
 
     [DefaultExecutionOrder(100)]
@@ -108,11 +104,15 @@ namespace Sona
         public bool logChallengeTrials = true;
 
         [Header("View")]
-        [Tooltip("Pitch black: no sky and no lit room. You see the sweep (outside Challenge), the control bar and the " +
-                 "status text. Create room shows a dim outline of the room so it can be edited. Off = lit room.")]
+        [Tooltip("Pitch black: no sky and no lit room. You see the sweep (outside Challenge), the menu and the " +
+                 "status text. Off = lit room.")]
         public bool darkWorld = true;
-        [Tooltip("Draw each sweep as glowing points in Explore and Create room. Never shown in Challenge.")]
+        [Tooltip("Draw each sweep as glowing points in Explore. Never shown in Challenge.")]
         public bool showSweepVisuals = true;
+        [Tooltip("Add researcher numbers to the HUD: renderer, returns, compute time, HRTF voices.")]
+        public bool showDiagnostics;
+
+        const float MessageSeconds = 4f;
 
         sealed class SweepInput
         {
@@ -158,7 +158,9 @@ namespace Sona
         SweepResult _current;
         SweepResult _next;
         bool _blackout;
-        string _message = "Press A (or Space) to send a sweep";
+        string _message;
+        float _messageAt;
+        string _result;
         float _hudTimer;
         float _startTime;
         readonly System.Random _rng = new System.Random();
@@ -166,11 +168,6 @@ namespace Sona
             new Dictionary<Camera, KeyValuePair<CameraClearFlags, Color>>();
 
         SonaMode _mode = SonaMode.Explore;
-        string _selectedId;
-        string _dragId;
-        Vector3 _dragOffset;
-        Vector3 _lastFloorPoint;
-        bool _hasFloorPoint;
         int _trial;
         int _sweepsThisTrial;
         bool _guessedThisTrial;
@@ -178,7 +175,6 @@ namespace Sona
         string _logPath;
 
         public SonaMode Mode { get { return _mode; } }
-        public bool Blackout { get { return _blackout; } }
 
         /// <summary>True when sweeps are drawn right now (visuals on, not Challenge, not blackout).</summary>
         public bool SweepVisualsShown
@@ -186,19 +182,13 @@ namespace Sona
             get { return showSweepVisuals && !_blackout && _mode != SonaMode.Challenge; }
         }
 
-        public string PanelHint
+        /// <summary>Shown on the HUD for a few seconds, then the hint comes back.</summary>
+        string Message
         {
-            get
+            set
             {
-                switch (_mode)
-                {
-                    case SonaMode.Challenge:
-                        return "Sweep, then point at the floor and pull the trigger";
-                    case SonaMode.CreateRoom:
-                        return "Hold the trigger on an object to drag it";
-                    default:
-                        return "A: sweep.  Hold :: SONA to move the bar";
-                }
+                _message = value;
+                _messageAt = Time.unscaledTime;
             }
         }
 
@@ -313,41 +303,30 @@ namespace Sona
                 _next = null;
             }
             if (!on && _job != null && _jobIsRepeat) _jobId = -1;   // drop a next cycle still being computed
-            _message = on ? "Repeat ON: sweeps re-ping from your current pose" : "Repeat OFF: the current sweep finishes normally";
+            Message = on ? "Repeat ON: sweeps re-ping from your current pose" : "Repeat OFF: the current sweep finishes normally";
         }
 
         public void SetWaveSpeed(float speed)
         {
             waveSpeed = Mathf.Clamp(Mathf.Round(speed * 4f) / 4f, 0.5f, 2f);
-            _message = string.Format("Wave speed {0:0.00}x ({1:0.00} s sweep), applies to the next sweep",
+            Message = string.Format("Wave speed {0:0.00}x ({1:0.00} s sweep), applies to the next sweep",
                                      waveSpeed, baseSweepDuration / waveSpeed);
         }
 
-        /// <summary>0.5x -> 0.75x -> ... -> 2x -> 0.5x.</summary>
-        public void CycleWaveSpeed()
-        {
-            SetWaveSpeed(waveSpeed >= 1.99f ? 0.5f : waveSpeed + 0.25f);
-        }
-
+        /// <summary>Stereo (live head) and HRTF take turns.</summary>
         public void CycleRenderMode()
         {
-            renderMode = (SonaRenderMode)(((int)renderMode + 1) % 3);
+            renderMode = renderMode == SonaRenderMode.Hrtf ? SonaRenderMode.StereoLiveHead : SonaRenderMode.Hrtf;
             bool wasRepeating = repeat && _current != null;
             StopPlayback();
-            _message = "Renderer: " + ModeLabel(renderMode);
+            Message = "Renderer: " + ModeLabel(renderMode);
             if (wasRepeating) StartJob(false);
         }
 
         public void TogglePitch()
         {
             elevationToPitch = !elevationToPitch;
-            _message = elevationToPitch ? "Elevation -> pitch ON (Python)" : "Elevation -> pitch OFF (fixed pitch)";
-        }
-
-        public void ToggleSphericalWave()
-        {
-            sphericalWave = !sphericalWave;
-            _message = sphericalWave ? "Spherical wave: timing from 3-D distance" : "Cylindrical wave (Python): timing from horizontal distance";
+            Message = elevationToPitch ? "Pitch follows height (Python)" : "Fixed pitch: height comes from the HRTF only";
         }
 
         // ------------------------------------------------------------------ room actions
@@ -356,29 +335,14 @@ namespace Sona
         {
             if (room == null) return;
             room.SetWalls(walls);
-            _message = "Walls: " + SonaRoomBuilder.WallsLabel(walls);
-        }
-
-        public void CycleWalls(int direction)
-        {
-            if (room == null) return;
-            int n = 3;
-            SetWalls((WallMode)((((int)room.walls + direction) % n + n) % n));
+            Message = "Walls: " + SonaRoomBuilder.WallsLabel(walls);
         }
 
         public void SetRoomSize(float width, float depth)
         {
             if (room == null) return;
             room.SetSize(width, depth);
-            _message = "Room: " + room.RoomLabel;
-        }
-
-        public void ChangeRoomSize(float dWidth, float dDepth, float dHeight)
-        {
-            if (room == null) return;
-            if (dHeight != 0f) room.SetHeight(room.height + dHeight);
-            if (dWidth != 0f || dDepth != 0f) room.SetSize(room.width + dWidth, room.depth + dDepth);
-            _message = "Room: " + room.RoomLabel;
+            Message = "Room: " + room.RoomLabel;
         }
 
         public void ResetObjects()
@@ -386,72 +350,7 @@ namespace Sona
             if (room == null) return;
             if (_mode == SonaMode.Challenge) SetMode(SonaMode.Explore);
             room.ResetObjects();
-            _selectedId = null;
-            _message = "Box 1 and Panel 1 restored";
-        }
-
-        public void ClearObjects()
-        {
-            if (room == null) return;
-            room.ClearObjects();
-            _selectedId = null;
-            _message = "All boxes and panels removed";
-        }
-
-        public void AddObject(ObjectKind kind)
-        {
-            if (room == null || head == null) return;
-            if (_mode != SonaMode.CreateRoom) SetMode(SonaMode.CreateRoom);
-            Vector3 spot;
-            if (_hasFloorPoint)
-            {
-                spot = _lastFloorPoint;
-            }
-            else
-            {
-                // scene.py: spawn 1.5 m in front of the listener.
-                Vector3 f = Vector3.ProjectOnPlane(head.forward, Vector3.up);
-                if (f.sqrMagnitude < 1e-4f) f = Vector3.forward;
-                spot = head.position + f.normalized * 1.5f;
-            }
-            string error;
-            ObjectSpec o = room.AddObject(kind, spot, out error);
-            if (o == null)
-            {
-                _message = "Could not add: " + error;
-                return;
-            }
-            Select(o.Id);
-            _message = o.Name + " added (hold the trigger on it to drag)";
-        }
-
-        public void RotateSelected()
-        {
-            if (room == null || _selectedId == null)
-            {
-                _message = "Select a box or panel first (trigger on it)";
-                return;
-            }
-            room.RotateObject(_selectedId, 15f);
-            _message = "Rotated 15°";
-        }
-
-        public void DeleteSelected()
-        {
-            if (room == null || _selectedId == null)
-            {
-                _message = "Select a box or panel first (trigger on it)";
-                return;
-            }
-            room.DeleteObject(_selectedId);
-            Select(null);
-            _message = "Deleted";
-        }
-
-        void Select(string id)
-        {
-            _selectedId = id;
-            if (room != null) room.SetHighlighted(id);
+            Message = "Box 1 and Panel 1 restored";
         }
 
         // ------------------------------------------------------------------ modes
@@ -459,26 +358,17 @@ namespace Sona
         public void SetMode(SonaMode mode)
         {
             if (mode == _mode) return;
-            SonaMode previous = _mode;
             _mode = mode;
-            _dragId = null;
-            Select(null);
-            if (previous == SonaMode.Challenge)
+            if (mode == SonaMode.Challenge)
+            {
+                NewChallengeBox();
+            }
+            else
             {
                 if (room != null) room.EndChallenge();
                 HideGuessMarker();
-            }
-            switch (mode)
-            {
-                case SonaMode.Challenge:
-                    NewChallengeBox();
-                    break;
-                case SonaMode.CreateRoom:
-                    _message = "Create room: add, drag, rotate and delete objects; change the room size";
-                    break;
-                default:
-                    _message = "Explore";
-                    break;
+                _result = null;
+                Message = "Explore: sweep and listen";
             }
             ApplyView();
         }
@@ -498,12 +388,13 @@ namespace Sona
                 _trial++;
                 _sweepsThisTrial = 0;
                 _guessedThisTrial = false;
+                _result = null;
                 HideGuessMarker();
-                _message = string.Format("Trial {0}: box hidden. Sweep, then point at the floor and pull the trigger", _trial);
+                Message = string.Format("Trial {0}: a new box is hidden", _trial);
             }
             else
             {
-                _message = "Random box failed: " + error;
+                Message = "Random box failed: " + error;
             }
         }
 
@@ -511,7 +402,7 @@ namespace Sona
         {
             if (room == null || !room.ChallengeActive)
             {
-                _message = "No hidden box (choose Challenge mode)";
+                Message = "No hidden box (choose Challenge mode)";
                 return;
             }
             room.SetChallengeRevealed(!room.ChallengeRevealed);
@@ -520,25 +411,37 @@ namespace Sona
             {
                 Vector3 d = box.Value - head.position;
                 float az = BearingFromHead(box.Value);
-                _message = string.Format("Box: {0:0.0} m away, {1:0}° {2}",
+                Message = string.Format("Box: {0:0.0} m away, {1:0}° {2}",
                                          new Vector2(d.x, d.z).magnitude, Mathf.Abs(az), az >= 0 ? "right" : "left");
             }
             else
             {
-                _message = room.ChallengeRevealed ? "Box revealed" : "Box hidden";
+                Message = room.ChallengeRevealed ? "Box revealed" : "Box hidden";
             }
         }
 
-        /// <summary>Hide everything, including the bar, the laser and the status text (blind trials).</summary>
+        /// <summary>Hide everything, including the menu, the laser and the status text (blind trials). Menu ends it.</summary>
         public void SetBlackout(bool on)
         {
             _blackout = on;
             ApplyView();
             if (hud != null) hud.SetVisible(!on);
             if (pointer != null) pointer.Visible = !on;
-            if (settingsPanel != null && on) settingsPanel.SetVisible(false);
+            if (settingsPanel != null && on) settingsPanel.Close();
             if (_guessMarker != null) _guessMarker.gameObject.SetActive(!on && _guessMarker.gameObject.activeSelf);
-            _message = on ? "Blackout ON (left trigger / B to turn off)" : "Blackout off";
+            Message = on ? "Blackout on" : "Blackout off";
+        }
+
+        /// <summary>The Menu button: ends blackout (and shows the menu), otherwise opens or closes the menu.</summary>
+        void PressMenu()
+        {
+            if (_blackout)
+            {
+                SetBlackout(false);
+                if (settingsPanel != null) settingsPanel.Open();
+                return;
+            }
+            if (settingsPanel != null) settingsPanel.Toggle();
         }
 
         /// <summary>Pitch black (default) or a lit room for sighted demos.</summary>
@@ -546,16 +449,16 @@ namespace Sona
         {
             darkWorld = dark;
             ApplyView();
-            _message = dark ? "Dark: only the sweep is visible" : "Lit: the room is visible (for sighted demos)";
+            Message = dark ? "Dark: only the sweep is visible" : "Lit: the room is visible (for sighted demos)";
         }
 
         public void ToggleSweepVisuals()
         {
             showSweepVisuals = !showSweepVisuals;
             ApplyView();
-            if (!showSweepVisuals) _message = "Sweep visuals off: sound only";
-            else if (_mode == SonaMode.Challenge) _message = "Sweep visuals on (they stay hidden in Challenge)";
-            else _message = "Sweep visuals on";
+            if (!showSweepVisuals) Message = "Sweep visuals off: sound only";
+            else if (_mode == SonaMode.Challenge) Message = "Sweep visuals on (they stay hidden in Challenge)";
+            else Message = "Sweep visuals on";
         }
 
         /// <summary>Room look, sweep visuals and camera background for the current mode.</summary>
@@ -564,9 +467,7 @@ namespace Sona
             if (room != null)
             {
                 room.SetVisible(!_blackout);
-                SonaRoomView view = SonaRoomView.Lit;
-                if (darkWorld) view = _mode == SonaMode.CreateRoom ? SonaRoomView.Ghost : SonaRoomView.Hidden;
-                room.SetView(view);
+                room.SetView(darkWorld ? SonaRoomView.Hidden : SonaRoomView.Lit);
             }
             if (visualizer != null) visualizer.SetVisible(SweepVisualsShown);
             ApplyCameraBackground(darkWorld || _blackout);
@@ -622,12 +523,12 @@ namespace Sona
                 _input.Poll();
                 bool xr = UnityEngine.XR.XRSettings.isDeviceActive;
                 if (pointer != null) pointer.Tick(_input, xr);
-                if (_input.Menu && settingsPanel != null) settingsPanel.Toggle();
+                if (_input.Menu) PressMenu();
                 if (settingsPanel != null)
                 {
                     clickUsed = settingsPanel.Tick(pointer, _input.SelectDown, _input.SelectHeld, _input.SelectUp);
                 }
-                HandleButtons();
+                if (_input.Sweep) Trigger();
                 HandlePointer(clickUsed);
             }
             PollJob();
@@ -643,67 +544,27 @@ namespace Sona
             if (hrtfRenderer != null) hrtfRenderer.Volume = volume;
         }
 
-        void HandleButtons()
-        {
-            if (_input.Trigger) Trigger();
-            if (_input.Repeat) SetRepeat(!repeat);
-            if (_input.SpeedStep != 0) SetWaveSpeed(waveSpeed + 0.25f * _input.SpeedStep);
-            if (_input.Mode) CycleRenderMode();
-            if (_input.Random) NewChallengeBox();
-            if (_input.Reveal) ToggleReveal();
-            if (_input.WallStep != 0) CycleWalls(_input.WallStep);
-            if (_input.Pitch) TogglePitch();
-            if (_input.Blackout) SetBlackout(!_blackout);
-        }
-
-        /// <summary>Laser interactions outside the panel: drag objects (Create) or place a guess (Challenge).</summary>
+        /// <summary>Challenge: the trigger places a guess on the floor, then starts the next box.</summary>
         void HandlePointer(bool clickUsedByPanel)
         {
-            if (pointer == null || room == null) return;
-            // Where the ray meets the floor plane, and whether that spot is actually visible (not behind a wall).
-            Vector3 planePoint = Vector3.zero;
-            bool onPlane = !pointer.HitPanel && pointer.RayToPlane(room.FloorY, out planePoint);
-            bool visible = onPlane;
-            if (onPlane && pointer.HasHit && !pointer.HitIsFloor)
+            if (pointer == null || room == null || _mode != SonaMode.Challenge || !_input.SelectDown) return;
+            // While the menu is open the trigger only works on the menu, so a missed button never becomes a guess.
+            if (clickUsedByPanel || (settingsPanel != null && settingsPanel.Visible)) return;
+            if (_guessedThisTrial)
+            {
+                NewChallengeBox();
+                return;
+            }
+            // Where the ray meets the floor plane, if that spot is actually visible (not behind a wall).
+            Vector3 planePoint;
+            if (pointer.HitPanel || !pointer.RayToPlane(room.FloorY, out planePoint)) return;
+            if (pointer.HasHit && !pointer.HitIsFloor)
             {
                 float toPlane = Vector3.Distance(pointer.CurrentRay.origin, planePoint);
                 float toHit = Vector3.Distance(pointer.CurrentRay.origin, pointer.HitPoint);
-                if (toHit < toPlane - 0.01f) visible = false;
+                if (toHit < toPlane - 0.01f) return;
             }
-            _hasFloorPoint = visible;
-            if (visible) _lastFloorPoint = planePoint;
-
-            if (_mode == SonaMode.CreateRoom)
-            {
-                if (_input.SelectDown && !clickUsedByPanel)
-                {
-                    string id = pointer.HasHit ? room.ObjectIdOf(pointer.HitCollider) : null;
-                    Select(id);
-                    if (id != null && onPlane)
-                    {
-                        GameObject go = room.GetObject(id);
-                        _dragId = id;
-                        Vector3 c = go.transform.position;
-                        _dragOffset = new Vector3(c.x - planePoint.x, 0f, c.z - planePoint.z);
-                        StopPlayback();
-                    }
-                }
-                if (_dragId != null)
-                {
-                    // Dragging follows the floor plane even when the ray passes through the object itself.
-                    if (_input.SelectHeld && onPlane) room.MoveObject(_dragId, planePoint + _dragOffset);
-                    if (_input.SelectUp || !_input.SelectHeld)
-                    {
-                        _dragId = null;
-                        room.NotifyChanged();
-                        _message = "Moved (trigger on the floor to deselect)";
-                    }
-                }
-            }
-            else if (_mode == SonaMode.Challenge)
-            {
-                if (_input.SelectDown && !clickUsedByPanel && visible) Guess(planePoint);
-            }
+            Guess(planePoint);
         }
 
         void Guess(Vector3 floorPoint)
@@ -719,8 +580,10 @@ namespace Sona
             float guessDist = new Vector2(floorPoint.x - head.position.x, floorPoint.z - head.position.z).magnitude;
             ShowGuessMarker(floorPoint);
             room.SetChallengeRevealed(true);
-            _message = string.Format("Trial {0}: off by {1:0.00} m ({2:+0;-0}°, {3:+0.00;-0.00} m) after {4} sweep{5}. X = next box",
-                                     _trial, error, bearingError, guessDist - boxDist, _sweepsThisTrial, _sweepsThisTrial == 1 ? "" : "s");
+            _result = string.Format("Off by {0:0.00} m: your guess was {1:0}° {2} and {3:0.00} m too {4}",
+                                    error, Mathf.Abs(bearingError), bearingError >= 0f ? "right" : "left",
+                                    Mathf.Abs(guessDist - boxDist), guessDist >= boxDist ? "far" : "near");
+            Message = null;
             if (logChallengeTrials && !_guessedThisTrial) LogTrial(box, floorPoint, error, boxBearing, guessBearing, boxDist, guessDist);
             _guessedThisTrial = true;
         }
@@ -797,7 +660,7 @@ namespace Sona
         {
             if (head == null)
             {
-                _message = "No head camera found (assign Head on the SONA Sweep Controller)";
+                Message = "No head camera found (assign Head on the SONA Sweep Controller)";
                 return null;
             }
             var quads = new List<SurfaceQuad>(64);
@@ -931,7 +794,7 @@ namespace Sona
             _job = null;
             if (task.IsFaulted)
             {
-                _message = "Sweep failed: " + task.Exception.GetBaseException().Message;
+                Message = "Sweep failed: " + task.Exception.GetBaseException().Message;
                 Debug.LogException(task.Exception.GetBaseException(), this);
                 return;
             }
@@ -939,7 +802,7 @@ namespace Sona
             if (r.Id != _jobId) return;   // superseded by a newer trigger or a stop
             if (r.Error != null)
             {
-                _message = "Sweep failed: " + r.Error;
+                Message = "Sweep failed: " + r.Error;
                 Debug.LogError("[SONA] " + r.Error, this);
                 return;
             }
@@ -1042,52 +905,66 @@ namespace Sona
             switch (m)
             {
                 case SonaRenderMode.StereoLiveHead: return "Stereo, live head (world-anchored)";
-                case SonaRenderMode.StereoFrozenPython: return "Stereo, frozen (Python-identical)";
                 default: return "HRTF (Meta XR Audio)";
             }
         }
 
-        static string ModeName(SonaMode m)
+        /// <summary>What to do next, named with the buttons of the device in use.</summary>
+        string Hint(bool xr)
         {
-            switch (m)
-            {
-                case SonaMode.Challenge: return "Challenge";
-                case SonaMode.CreateRoom: return "Create room";
-                default: return "Explore";
-            }
+            string a = xr ? "A" : "Space", trigger = xr ? "Trigger" : "Click", menu = xr ? "Menu" : "Tab";
+            if (settingsPanel != null && settingsPanel.Visible) return trigger + ": choose    " + menu + ": close the menu";
+            if (_mode != SonaMode.Challenge) return a + ": sweep    " + menu + ": menu";
+            if (_guessedThisTrial) return trigger + ": next box    " + a + ": sweep again";
+            return a + ": sweep    " + trigger + " at the floor: guess    " + menu + ": menu";
         }
 
+        /// <summary>Status line, result or latest message, and the hint; researcher numbers only when asked for.</summary>
         void UpdateHud()
         {
             _hudTimer -= Time.unscaledDeltaTime;
             if (_hudTimer > 0f) return;
             _hudTimer = 0.2f;
 
-            if (head != null && room != null && Time.time - _startTime > 3f && UnityEngine.XR.XRSettings.isDeviceActive &&
-                head.position.y - room.transform.position.y < 0.5f)
+            bool xr = UnityEngine.XR.XRSettings.isDeviceActive;
+            if (head != null && room != null && Time.time - _startTime > 3f && xr && head.position.y - room.transform.position.y < 0.5f)
             {
-                _message = "Head is below 0.5 m: set OVRManager Tracking Origin Type = Floor Level";
+                Message = "Head is below 0.5 m: set OVRManager Tracking Origin Type = Floor Level";
             }
 
             var sb = new StringBuilder(256);
-            sb.Append("SONA  ").Append(ModeName(_mode)).Append("  |  ").Append(ModeLabel(renderMode)).Append('\n');
-            sb.AppendFormat("speed {0:0.00}x  |  repeat {1}  |  pitch {2}  |  {3} wave\n",
-                            waveSpeed, repeat ? "ON" : "off", elevationToPitch ? "elevation" : "fixed",
-                            sphericalWave ? "spherical" : "cylindrical");
-            if (room != null) sb.Append(room.RoomLabel).Append('\n');
-            SweepResult shown = _current;
-            if (shown != null && shown.Plan != null)
+            if (_mode == SonaMode.Challenge)
             {
-                sb.AppendFormat("{0} returns  |  far {1:0.0} m  |  {2:0} ms", shown.ReturnCount, shown.Encoding.Far, shown.ComputeMs);
-                if (shown.Mode == SonaRenderMode.Hrtf && shown.Hrtf != null && hrtfRenderer != null)
-                {
-                    sb.AppendFormat("  |  {0} clusters, {1} voices, {2} dropped",
-                                    shown.Hrtf.Clusters.Count, shown.Hrtf.PredictedMaxVoices, hrtfRenderer.DroppedClusters);
-                }
-                sb.Append('\n');
+                sb.AppendFormat("<b>Challenge  ·  trial {0}  ·  {1} sweep{2}</b>", _trial, _sweepsThisTrial, _sweepsThisTrial == 1 ? "" : "s");
             }
-            sb.Append(_message).Append('\n');
-            sb.Append("A sweep   Menu controls   Trigger select   L-trigger blackout");
+            else
+            {
+                sb.Append("<b>Explore</b>");
+            }
+            if (repeat) sb.Append("  ·  repeat on");
+            sb.Append('\n');
+            if (_guessedThisTrial && _result != null) sb.Append("<color=#ffd27a>").Append(_result).Append("</color>\n");
+            if (!string.IsNullOrEmpty(_message) && Time.unscaledTime - _messageAt < MessageSeconds) sb.Append(_message).Append('\n');
+            sb.Append("<color=#9fb3c8>").Append(Hint(xr)).Append("</color>");
+
+            if (showDiagnostics)
+            {
+                sb.Append("\n<color=#7f8a99>").Append(ModeLabel(renderMode));
+                sb.AppendFormat("  |  speed {0:0.00}x  |  pitch {1}  |  {2} wave", waveSpeed, elevationToPitch ? "height" : "fixed",
+                                sphericalWave ? "spherical" : "cylindrical");
+                if (room != null) sb.Append('\n').Append(room.RoomLabel);
+                SweepResult shown = _current;
+                if (shown != null && shown.Plan != null)
+                {
+                    sb.AppendFormat("\n{0} returns  |  far {1:0.0} m  |  {2:0} ms", shown.ReturnCount, shown.Encoding.Far, shown.ComputeMs);
+                    if (shown.Mode == SonaRenderMode.Hrtf && shown.Hrtf != null && hrtfRenderer != null)
+                    {
+                        sb.AppendFormat("  |  {0} clusters, {1} voices, {2} dropped",
+                                        shown.Hrtf.Clusters.Count, shown.Hrtf.PredictedMaxVoices, hrtfRenderer.DroppedClusters);
+                    }
+                }
+                sb.Append("</color>");
+            }
             if (hud != null) hud.SetText(sb.ToString());
         }
     }
