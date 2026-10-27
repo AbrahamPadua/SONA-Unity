@@ -436,6 +436,31 @@ static class Program
                     isolatedOk &= iv.Click && double.IsPositiveInfinity(iv.DrrDb) && double.IsNaN(iv.DrrDistance);
             }
             Check(isolatedOk, "study: DRR-only trials drop the click and jitter the onset; delay-only trials are dry");
+
+            // Staircases: Negen's rule against Negen's own psychometric function (eq. 1, s = 0.15).
+            Func<int, double, double> longRun = (upSteps, cap) =>
+            {
+                var rng = new StudyRandom(7);
+                long hits = 0, n = 0;
+                for (int run = 0; run < 2000; run++)
+                {
+                    var sc = new Staircase(0.2, 0.9, upSteps, cap, 400);
+                    while (!sc.Done)
+                    {
+                        bool ok = rng.NextDouble() < 1.0 / 3.0 + 0.65 * (2.0 * Phi(sc.Value / 0.15) - 1.0);
+                        if (sc.Trials >= 100) { n++; if (ok) hits++; }
+                        sc.Update(ok);
+                    }
+                }
+                return hits / (double)n;
+            };
+            double up3 = longRun(3, 0.4), up2 = longRun(2, 9.0);
+            Check(Math.Abs(up3 - 0.75) < 0.01 && Math.Abs(up2 - 2.0 / 3.0) < 0.01 && new Staircase().TargetProportion == 0.75,
+                  string.Format("staircase: Negen's rule settles at {0:F3} correct (Kaernbach: 0.75, not 2/3); one fewer up step gives {1:F3}", up3, up2));
+            var wrong = new Staircase();
+            for (int i = 0; i < 10; i++) wrong.Update(false);
+            Check(wrong.Value == 0.4 && wrong.CapHits == 8,
+                  "staircase: an observer who is always wrong reaches the 0.4 cap on the 3rd error, and errors 3 to 10 count as cap hits");
         }
 
         Console.WriteLine(s_failures == 0 ? "C# CHECKS: ALL PASS" : ("C# CHECKS: " + s_failures + " FAILED"));
@@ -443,6 +468,14 @@ static class Program
     }
 
     static int s_failures;
+
+    // Normal CDF via Abramowitz & Stegun 7.1.26 (error under 1.5e-7), for simulating Negen's psychometric function.
+    static double Phi(double x)
+    {
+        double z = Math.Abs(x) / Math.Sqrt(2.0), t = 1.0 / (1.0 + 0.3275911 * z);
+        double erf = 1.0 - t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * Math.Exp(-z * z);
+        return 0.5 * (1.0 + (x < 0 ? -erf : erf));
+    }
 
     static void Check(bool ok, string what)
     {
