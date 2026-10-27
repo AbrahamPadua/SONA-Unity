@@ -273,7 +273,7 @@ static class Program
             Console.WriteLine("  wav  surface points: {0}   scheduled: {1}", returns.Count, plan.Count);
         }
 
-        // ---- Room editing (settings panel): default room, wall/size changes, object ids ----
+        // ---- Room tab: default room, wall and size changes ----
         {
             RoomLayout def = SonaRoomModel.MakeRoom(5, 6, 3, WallMode.NoWalls, true);
             RoomLayout py = SonaRoomModel.MakePreset("no_walls_demo");
@@ -296,15 +296,6 @@ static class Program
             Check(inside && panel != null && Math.Abs(panel.Y - (4.0 - 0.04)) < 1e-9, "shrink to 4 x 4 clamps objects inside (panel pushed to the back wall)");
             SonaRoomModel.ChangeRoom(lay, 4, 4, 1.5, WallMode.Open);
             Check(lay.Find("panel-1").Height <= 1.5 && lay.Find("box-1").Height == 1.0, "lowering the ceiling caps object heights");
-
-            ObjectSpec b2 = SonaRoomModel.AddObject(lay, ObjectKind.Box, 1.0, 2.0);
-            lay.Objects.Remove(b2);
-            ObjectSpec b3 = SonaRoomModel.AddObject(lay, ObjectKind.Box, 1.0, 2.0);
-            ObjectSpec p2 = SonaRoomModel.AddObject(lay, ObjectKind.Panel, -1.0, 2.0);
-            Check(b2.Id == "box-2" && b3.Id == "box-3" && b3.Name == "Box 3" && p2.Id == "panel-2", "new object ids continue like scene.py (box-2, box-3 after a delete, panel-2)");
-            bool capped = false;
-            try { for (int i = 0; i < 40; i++) SonaRoomModel.AddObject(lay, ObjectKind.Box, 0, 2); } catch (ArgumentException) { capped = true; }
-            Check(capped && lay.Objects.Count == SonaRoomModel.MaxObjects, "object limit of 25 enforced");
         }
 
         // ---- Challenge scoring (known answers; + = right of the box) ----

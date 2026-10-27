@@ -100,8 +100,6 @@ namespace Sona.Core
         public double ListenerZ = 1.5;
         public double ListenerYawDegrees;
         public List<ObjectSpec> Objects = new List<ObjectSpec>();
-        public int NextBox = 1;      // scene.py _next_box / _next_panel: ids keep counting after deletes
-        public int NextPanel = 1;
 
         public ObjectSpec Find(string id)
         {
@@ -115,7 +113,6 @@ namespace Sona.Core
 
     public static class SonaRoomModel
     {
-        public const int MaxObjects = 25;
         public const string DefaultPresetId = "open_demo";
         public const string CustomPresetId = "custom";
         public const double RandomBoxSize = 1.0;
@@ -162,8 +159,6 @@ namespace Sona.Core
             layout.Objects.Add(ObjectSpec.Box("box-1", "Box 1", 0.0, 0.48333333333333334 * room.Depth, 1.0, 1.0, 1.0, 0.0));
             layout.Objects.Add(ObjectSpec.Panel("panel-1", "Panel 1", 0.0, 0.7666666666666667 * room.Depth, 0.8, 0.08, 1.5, 0.0));
             for (int i = 0; i < layout.Objects.Count; i++) ClampObject(room, layout.Objects[i]);
-            layout.NextBox = 2;
-            layout.NextPanel = 2;
             return layout;
         }
 
@@ -200,28 +195,6 @@ namespace Sona.Core
                 }
             }
             return removed;
-        }
-
-        /// <summary>scene.add_box / add_panel: next id and name, default size, clamped inside the room.</summary>
-        public static ObjectSpec AddObject(RoomLayout layout, ObjectKind kind, double x, double y)
-        {
-            if (layout.Objects.Count >= MaxObjects)
-                throw new ArgumentException("A scene can contain at most " + MaxObjects + " objects");
-            ObjectSpec o;
-            if (kind == ObjectKind.Box)
-            {
-                int n = layout.NextBox++;
-                o = ObjectSpec.Box("box-" + n, "Box " + n, x, y);
-            }
-            else
-            {
-                int n = layout.NextPanel++;
-                o = ObjectSpec.Panel("panel-" + n, "Panel " + n, x, y);
-            }
-            if (o.Height > layout.Room.Height) o.Height = layout.Room.Height;
-            ClampObject(layout.Room, o);
-            layout.Objects.Add(o);
-            return o;
         }
 
         public static RoomLayout MakePreset(string presetId)

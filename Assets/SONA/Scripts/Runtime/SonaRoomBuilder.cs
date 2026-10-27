@@ -210,8 +210,6 @@ namespace Sona
             RoomLayout fresh = SonaRoomModel.MakeRoom(width, depth, height, walls, true);
             Layout.Objects.Clear();
             Layout.Objects.AddRange(fresh.Objects);
-            Layout.NextBox = fresh.NextBox;
-            Layout.NextPanel = fresh.NextPanel;
             BuildAll();
         }
 
