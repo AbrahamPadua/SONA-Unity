@@ -11,5 +11,6 @@
   <ItemGroup>
     <Compile Include="../../Assets/SONA/Scripts/Core/*.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="StudyAudit.cs" />
   </ItemGroup>
 </Project>

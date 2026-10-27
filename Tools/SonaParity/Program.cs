@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using Sona.Core;
 
-static class Program
+static partial class Program
 {
     sealed class Case
     {
@@ -462,6 +462,8 @@ static class Program
             Check(wrong.Value == 0.4 && wrong.CapHits == 8,
                   "staircase: an observer who is always wrong reaches the 0.4 cap on the 3rd error, and errors 3 to 10 count as cap hits");
         }
+
+        StudyAudit(outDir);
 
         Console.WriteLine(s_failures == 0 ? "C# CHECKS: ALL PASS" : ("C# CHECKS: " + s_failures + " FAILED"));
         return s_failures == 0 ? 0 : 1;
