@@ -100,10 +100,13 @@ Objects stay where they are when you change walls or size (they are clamped insi
 **Challenge** replaces the objects with one hidden 1 x 1 x 1 m box at least 1.5 m away (the Python
 Random Box). Starting a box (Next box, or choosing Challenge) closes the menu. Sweep, then point at
 the floor where you think the box is and pull the trigger. The box is revealed and the HUD shows
-how far off you were, with the bearing and distance errors. Pull the trigger again for the next box. Every guess is appended to
-`sona_challenge_log.csv` in `Application.persistentDataPath` (on the Quest:
-`Android/data/<package>/files/`, readable from Meta Quest Developer Hub). Leaving Challenge brings
-your objects back.
+how far off you were, with the bearing and distance errors. Pull the trigger again for the next box.
+Leaving Challenge brings your objects back.
+
+Every guess is appended to `sona_challenge_log_v2.csv` in `Application.persistentDataPath` (on the
+Quest: `Android/data/com.DefaultCompany.SONAquest/files/`). Trial numbers restart at every launch,
+so the first column, `session`, holds the launch time to keep sessions apart. Older builds wrote
+`sona_challenge_log.csv` without the session column; that file is left in place.
 
 All encoder, grain and clustering parameters are on the **SONA Sweep Controller** component,
 with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s grains, and so on).

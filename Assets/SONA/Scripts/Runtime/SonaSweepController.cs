@@ -173,6 +173,8 @@ namespace Sona
         bool _guessedThisTrial;
         Transform _guessMarker;
         string _logPath;
+        // Trial numbers restart at every launch, so each log row also names the launch it came from.
+        readonly string _session = DateTime.Now.ToString("s", CultureInfo.InvariantCulture);
 
         public SonaMode Mode { get { return _mode; } }
 
@@ -638,18 +640,19 @@ namespace Sona
         {
             try
             {
-                if (_logPath == null) _logPath = Path.Combine(Application.persistentDataPath, "sona_challenge_log.csv");
+                // v2 adds the session column; a new name keeps it from being appended under the old header.
+                if (_logPath == null) _logPath = Path.Combine(Application.persistentDataPath, "sona_challenge_log_v2.csv");
                 bool newFile = !File.Exists(_logPath);
                 var inv = CultureInfo.InvariantCulture;
                 var sb = new StringBuilder();
                 if (newFile)
                 {
-                    sb.AppendLine("time,trial,renderer,pitch,wave_speed,wave_shape,walls,room_w,room_d,room_h,sweeps," +
+                    sb.AppendLine("session,time,trial,renderer,pitch,wave_speed,wave_shape,walls,room_w,room_d,room_h,sweeps," +
                                   "box_x,box_z,guess_x,guess_z,error_m,box_dist_m,guess_dist_m,box_bearing_deg,guess_bearing_deg,bearing_error_deg");
                 }
                 sb.AppendLine(string.Join(",", new[]
                 {
-                    DateTime.Now.ToString("s", inv), _trial.ToString(inv), renderMode.ToString(),
+                    _session, DateTime.Now.ToString("s", inv), _trial.ToString(inv), renderMode.ToString(),
                     elevationToPitch ? "elevation" : "fixed", waveSpeed.ToString("0.00", inv), sphericalWave ? "spherical" : "cylindrical",
                     room.walls.ToString(), room.width.ToString("0.0", inv), room.depth.ToString("0.0", inv), room.height.ToString("0.0", inv),
                     _sweepsThisTrial.ToString(inv),
