@@ -192,26 +192,7 @@ namespace Sona.Core
             GranularParams p = bank.Params;
             int frames = p.BufferFrames(totalDuration, bank.Length);
             var buf = new double[frames * 2];
-            for (int ei = 0; ei < plan.Count; ei++)
-            {
-                ScheduledReturn ev = plan[ei];
-                bool floor;
-                double freq = pitch.FrequencyOf(ev, out floor);
-                double[] g = bank.Grain(bank.GetIndex(freq, floor));
-                long dl, dr;
-                double gl, gr;
-                ItdIld.Compute(ev.Azimuth, ev.Amplitude, p, out dl, out dr, out gl, out gr);
-                long start = (long)(ev.Onset * p.SampleRate);
-                long sl = start + dl;
-                long sr = start + dr;
-                for (int i = 0; i < g.Length; i++)
-                {
-                    long fl = sl + i;
-                    if (fl >= 0 && fl < frames) buf[fl * 2] += gl * g[i];
-                    long fr = sr + i;
-                    if (fr >= 0 && fr < frames) buf[fr * 2 + 1] += gr * g[i];
-                }
-            }
+            MixInto(plan, bank, pitch, buf, frames);
             double peak = 0.0;
             for (int i = 0; i < buf.Length; i++)
             {
@@ -231,23 +212,13 @@ namespace Sona.Core
             for (int i = 0; i < buf.Length; i++) result[i] = (float)buf[i];
             return result;
         }
-    }
-
-    public static class GranularGain
-    {
-        [ThreadStatic] static double[] s_scratch;
-
         /// <summary>
-        /// The mix_gain x peak-limit scale that RenderOffline would apply, computed without keeping the
-        /// rendered buffer (reuses a per-thread scratch buffer, so repeated sweeps make no garbage).
+        /// Add every event's grain into <paramref name="buf"/> (interleaved stereo, <paramref name="frames"/> frames) with
+        /// spatializer.py's ITD/ILD panning, before the mix gain. The offline render and GranularGain.Measure share it.
         /// </summary>
-        public static double Measure(IList<ScheduledReturn> plan, double totalDuration, GrainBank bank, PitchMapper pitch)
+        internal static void MixInto(IList<ScheduledReturn> plan, GrainBank bank, PitchMapper pitch, double[] buf, int frames)
         {
             GranularParams p = bank.Params;
-            int frames = p.BufferFrames(totalDuration, bank.Length);
-            if (s_scratch == null || s_scratch.Length < frames * 2) s_scratch = new double[frames * 2];
-            double[] buf = s_scratch;
-            Array.Clear(buf, 0, frames * 2);
             for (int ei = 0; ei < plan.Count; ei++)
             {
                 ScheduledReturn ev = plan[ei];
@@ -268,6 +239,25 @@ namespace Sona.Core
                     if (fr >= 0 && fr < frames) buf[fr * 2 + 1] += gr * g[i];
                 }
             }
+        }
+    }
+
+    public static class GranularGain
+    {
+        [ThreadStatic] static double[] s_scratch;
+
+        /// <summary>
+        /// The mix_gain x peak-limit scale that RenderOffline would apply, computed without keeping the
+        /// rendered buffer (reuses a per-thread scratch buffer, so repeated sweeps make no garbage).
+        /// </summary>
+        public static double Measure(IList<ScheduledReturn> plan, double totalDuration, GrainBank bank, PitchMapper pitch)
+        {
+            GranularParams p = bank.Params;
+            int frames = p.BufferFrames(totalDuration, bank.Length);
+            if (s_scratch == null || s_scratch.Length < frames * 2) s_scratch = new double[frames * 2];
+            double[] buf = s_scratch;
+            Array.Clear(buf, 0, frames * 2);
+            GranularRenderer.MixInto(plan, bank, pitch, buf, frames);
             double peak = 0.0;
             for (int i = 0; i < frames * 2; i++)
             {
