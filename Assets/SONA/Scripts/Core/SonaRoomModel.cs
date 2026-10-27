@@ -203,21 +203,6 @@ namespace Sona.Core
             return MakeRoomScene(new RoomSpec(p.Width, p.Depth, p.Height, p.Enclosed, p.WallFree), p.Id);
         }
 
-        public static RoomLayout MakeCustomRoom(double width, double depth, double height, WallMode walls)
-        {
-            Bounded(width, "room width", MinCustomWidth, MaxCustomWidth);
-            Bounded(depth, "room depth", MinCustomDepth, MaxCustomDepth);
-            Bounded(height, "room height", MinCustomHeight, MaxCustomHeight);
-            var room = new RoomSpec(width, depth, height, walls == WallMode.Closed, walls == WallMode.NoWalls);
-            return MakeRoomScene(room, CustomPresetId);
-        }
-
-        static void Bounded(double value, string label, double lo, double hi)
-        {
-            if (!SonaMath.IsFinite(value) || value < lo || value > hi)
-                throw new ArgumentException(string.Format("{0} must be between {1:g} and {2:g} m", label, lo, hi));
-        }
-
         /// <summary>
         /// scene._make_random_box_scene: one hidden 1 x 1 x 1 m box, centre uniform over the valid
         /// in-room rectangle, at least <paramref name="minListenerDistance"/> (planar) from the listener.

@@ -37,7 +37,7 @@ static class Program
     static RoomLayout Build(Case c)
     {
         RoomLayout layout = c.Custom != null
-            ? SonaRoomModel.MakeCustomRoom(c.Custom[0], c.Custom[1], c.Custom[2], c.CustomWalls)
+            ? SonaRoomModel.MakeRoom(c.Custom[0], c.Custom[1], c.Custom[2], c.CustomWalls, true)
             : SonaRoomModel.MakePreset(c.Preset);
         if (c.Listener != null)
         {
