@@ -1,0 +1,14 @@
+<!--
+  SONA builds every surface, button and marker at runtime with GameObject.CreatePrimitive, so no scene or
+  asset references these colliders and Unity's engine code stripping would remove them from player builds
+  ("Can't add component because class 'SphereCollider' doesn't exist"). Without the box and mesh colliders
+  the laser could not hit the menu or the floor.
+-->
+<linker>
+  <assembly fullname="UnityEngine.PhysicsModule">
+    <type fullname="UnityEngine.BoxCollider" preserve="all" />
+    <type fullname="UnityEngine.MeshCollider" preserve="all" />
+    <type fullname="UnityEngine.SphereCollider" preserve="all" />
+    <type fullname="UnityEngine.CapsuleCollider" preserve="all" />
+  </assembly>
+</linker>
