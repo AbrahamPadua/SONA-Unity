@@ -108,6 +108,14 @@ Quest: `Android/data/com.DefaultCompany.SONAquest/files/`). Trial numbers restar
 so the first column, `session`, holds the launch time to keep sessions apart. Older builds wrote
 `sona_challenge_log.csv` without the session column; that file is left in place.
 
+**Copy the log off the headset after every session.** Android deletes the app's folder on uninstall,
+and the app turns off Android backup. Uninstalling is also the usual way out when the headset refuses
+an update built on another computer. Copy the log with:
+
+```
+adb pull /sdcard/Android/data/com.DefaultCompany.SONAquest/files/sona_challenge_log_v2.csv
+```
+
 All encoder, grain and clustering parameters are on the **SONA Sweep Controller** component,
 with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s grains, and so on).
 
