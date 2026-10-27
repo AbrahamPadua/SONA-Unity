@@ -180,7 +180,7 @@ namespace Sona
 
             float grain = Mathf.Max(_grainDuration, 1e-4f);
             float flash = Mathf.Max(grain, flashSeconds);
-            // Pull each dot a little toward the eye so surfaces drawn in Create room do not cut it in half.
+            // Pull each dot a little toward the eye so lit surfaces (Room > Light > Lit) do not cut it in half.
             Camera eye = Camera.main;
             bool pull = eye != null;
             Vector3 eyePos = pull ? eye.transform.position : Vector3.zero;
