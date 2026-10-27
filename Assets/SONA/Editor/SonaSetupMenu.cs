@@ -1,9 +1,8 @@
-// SONA Quest port: one-click setup and a Python-parity export.
+// SONA Quest port: one-click setup.
 //
 //   SONA > Set Up URP for Quest             assigns a Quest-tuned URP asset (fixes pink materials) and
 //                                           points the SONA materials at SONA/Simple Lit
 //   SONA > Create Quest Test Scene          builds Assets/SONA/Scenes/SonaTestRoom.unity
-//   SONA > Export Python-Parity sweep.wav   renders the Open Demo room exactly like render.py
 using System.Collections.Generic;
 using System.IO;
 using Sona.Core;
@@ -241,29 +240,6 @@ namespace Sona.EditorTools
                       "). Press Play to test with the mouse, or Build And Run to the Quest.");
         }
 
-        [MenuItem("SONA/Export Python-Parity sweep.wav", false, 20)]
-        public static void ExportParityWav()
-        {
-            // Mirrors render.py: default scene (Open Demo), 5 samples/m, max_range = far, near 0.4, 1.2 s, sqrt foveation.
-            RoomLayout layout = SonaRoomModel.MakePreset(SonaRoomModel.DefaultPresetId);
-            double far = SonaRoomModel.FarthestCornerDistance(layout);
-            ListenerPose3D pose = SonaRoomModel.ListenerPose(layout);
-            List<Return3D> returns = SonaFrontend.SurfaceEmission(SonaRoomModel.SurfaceQuads(layout), pose, 5.0, far);
-            var ep = new EncodingParams { Near = 0.4, Far = far, SweepDuration = 1.2, FoveationExponent = 0.5 };
-            List<ScheduledReturn> plan = SonaEncoder.Encode(returns, ep);
-            var bank = new GrainBank(new GranularParams { SampleRate = 44100 });
-            double gain, peak;
-            float[] stereo = GranularRenderer.RenderOffline(plan, ep.SweepDuration, bank, new PitchMapper(), out gain, out peak);
-            string path = Path.GetFullPath("SONA_unity_sweep.wav");
-            WriteWav16(path, stereo, 44100);
-            Debug.Log(string.Format(
-                "[SONA] surface points: {0}   scheduled: {1}   wrote {2} ({3:0.00}s). first onset {4:0} ms -> last onset {5:0} ms. " +
-                "Compare with the Python sweep.wav from render.py: the samples should be identical.",
-                returns.Count, plan.Count, path, stereo.Length / 2 / 44100.0,
-                plan.Count > 0 ? plan[0].Onset * 1000 : 0, plan.Count > 0 ? plan[plan.Count - 1].Onset * 1000 : 0));
-            EditorUtility.RevealInFinder(path);
-        }
-
         // ------------------------------------------------------------------ helpers
 
         static Transform CreateRig(out Transform rightHand)
@@ -371,33 +347,6 @@ namespace Sona.EditorTools
                 so.ApplyModifiedProperties();
             }
             return real.intValue;
-        }
-
-        static void WriteWav16(string path, float[] interleavedStereo, int sampleRate)
-        {
-            using (var w = new BinaryWriter(File.Create(path)))
-            {
-                int dataBytes = interleavedStereo.Length * 2;
-                w.Write(new[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F' });
-                w.Write(36 + dataBytes);
-                w.Write(new[] { (byte)'W', (byte)'A', (byte)'V', (byte)'E' });
-                w.Write(new[] { (byte)'f', (byte)'m', (byte)'t', (byte)' ' });
-                w.Write(16);
-                w.Write((short)1);              // PCM
-                w.Write((short)2);              // stereo
-                w.Write(sampleRate);
-                w.Write(sampleRate * 2 * 2);    // byte rate
-                w.Write((short)4);              // block align
-                w.Write((short)16);
-                w.Write(new[] { (byte)'d', (byte)'a', (byte)'t', (byte)'a' });
-                w.Write(dataBytes);
-                for (int i = 0; i < interleavedStereo.Length; i++)
-                {
-                    // render.py: (np.clip(stereo, -1, 1) * 32767).astype("<i2") (float32 math, truncation)
-                    float v = Mathf.Clamp(interleavedStereo[i], -1f, 1f) * 32767f;
-                    w.Write((short)v);
-                }
-            }
         }
     }
 }

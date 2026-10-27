@@ -145,7 +145,7 @@ with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s gr
 | scene.py (presets, boxes, panels, custom rooms, random box) | `Core/SonaRoomModel.cs`, `Runtime/SonaRoomBuilder.cs` |
 | app.py `render_sweep`, trigger, repeat, wave speed | `Runtime/SonaSweepController.cs` |
 | audio_player.py | `Runtime/SonaStereoRenderer.cs` (real-time mixer on Unity's audio thread) |
-| render.py | menu **SONA > Export Python-Parity sweep.wav** |
+| render.py | `GranularRenderer.RenderOffline` in `Core/SonaGranular.cs` |
 | (new) HRTF rendering | `Core/SonaClusterer.cs`, `Runtime/SonaHrtfRenderer.cs` |
 
 Everything in `Scripts/Core` is plain C# with no Unity dependency, like the Python encoder.
@@ -156,8 +156,7 @@ Against the Python code itself on 7 rooms (all presets plus a moved/rotated list
 rotated objects, at 0.5x, 1x and 1.5x speed):
 
 - returns and render plans match to about 1e-15;
-- the offline render is bit-identical to `GranularBinauralSpatializer.render` (max diff 0.0),
-  and **SONA > Export Python-Parity sweep.wav** writes the same samples as `python render.py`;
+- the offline render is bit-identical to `GranularBinauralSpatializer.render` (max diff 0.0);
 - the real-time mixer matches the Python buffer within 1.5e-6 (float32) with head tracking off,
   and its gapless repeat matches the Python loop;
 - the room builder's Unity geometry reproduces scene.py's surfaces to 1e-15 m;

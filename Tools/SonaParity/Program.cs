@@ -250,29 +250,6 @@ static class Program
             Check(Math.Abs(lp.Heading - Math.Atan2(0.6, 0.8)) < 1e-12, "heading falls back to the head's up vector when looking straight down");
         }
 
-        // ---- Same call sequence as the editor menu "SONA > Export Python-Parity sweep.wav" ----
-        {
-            RoomLayout layout = SonaRoomModel.MakePreset(SonaRoomModel.DefaultPresetId);
-            double far = SonaRoomModel.FarthestCornerDistance(layout);
-            ListenerPose3D pose = SonaRoomModel.ListenerPose(layout);
-            var returns = SonaFrontend.SurfaceEmission(SonaRoomModel.SurfaceQuads(layout), pose, 5.0, far);
-            var ep = new EncodingParams { Near = 0.4, Far = far, SweepDuration = 1.2, FoveationExponent = 0.5 };
-            var plan = SonaEncoder.Encode(returns, ep);
-            var bank = new GrainBank(new GranularParams { SampleRate = 44100 });
-            double gain, peak;
-            float[] stereo = GranularRenderer.RenderOffline(plan, ep.SweepDuration, bank, new PitchMapper(), out gain, out peak);
-            using (var w = new BinaryWriter(File.Create(Path.Combine(outDir, "SONA_unity_sweep.wav"))))
-            {
-                int dataBytes = stereo.Length * 2;
-                w.Write(new[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F' }); w.Write(36 + dataBytes);
-                w.Write(new[] { (byte)'W', (byte)'A', (byte)'V', (byte)'E' }); w.Write(new[] { (byte)'f', (byte)'m', (byte)'t', (byte)' ' });
-                w.Write(16); w.Write((short)1); w.Write((short)2); w.Write(44100); w.Write(44100 * 4); w.Write((short)4); w.Write((short)16);
-                w.Write(new[] { (byte)'d', (byte)'a', (byte)'t', (byte)'a' }); w.Write(dataBytes);
-                for (int i = 0; i < stereo.Length; i++) { float v = Math.Max(-1f, Math.Min(1f, stereo[i])) * 32767f; w.Write((short)v); }
-            }
-            Console.WriteLine("  wav  surface points: {0}   scheduled: {1}", returns.Count, plan.Count);
-        }
-
         // ---- Room tab: default room, wall and size changes ----
         {
             RoomLayout def = SonaRoomModel.MakeRoom(5, 6, 3, WallMode.NoWalls, true);
