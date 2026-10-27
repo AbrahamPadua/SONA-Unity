@@ -42,26 +42,9 @@ namespace Sona
         float _volume = 1f;
 
         public int DroppedClusters { get; private set; }
-        public int LateStarts { get; private set; }
-        public int VoicesInUse { get; private set; }
         public int VoiceCount { get { return _voices != null ? _voices.Length : 0; } }
 
         public float Volume { set { _volume = Mathf.Clamp01(value); } }
-
-        public bool IsActive
-        {
-            get
-            {
-                if (_voices == null) return false;
-                double now = AudioSettings.dspTime;
-                for (int i = 0; i < _voices.Length; i++)
-                {
-                    Voice v = _voices[i];
-                    if (v.Pending.Count > 0 || (v.Current != null && v.Current.EndDsp > now)) return true;
-                }
-                return false;
-            }
-        }
 
         void Awake()
         {
@@ -156,7 +139,6 @@ namespace Sona
             if (_voices == null) return;
             double now = AudioSettings.dspTime;
             float gain = Mathf.Pow(10f, gainDb / 20f) * _volume;
-            int inUse = 0;
             for (int i = 0; i < _voices.Length; i++)
             {
                 Voice v = _voices[i];
@@ -170,19 +152,13 @@ namespace Sona
                 if (v.Current == null && v.Pending.Count > 0 && v.Pending.Peek().StartDsp - now < uploadHorizonSeconds)
                 {
                     HrtfVoicePlay play = v.Pending.Dequeue();
-                    if (play.EndDsp <= now)
-                    {
-                        LateStarts++;
-                        continue;   // entirely in the past; skip it
-                    }
-                    if (play.StartDsp < now) LateStarts++;
+                    if (play.EndDsp <= now) continue;   // entirely in the past; skip it
                     Upload(v, play, gain);
                     v.Current = play;
                 }
                 // Follow the timeline: sit at the current cluster, or the next one during gaps.
                 if (v.Current != null)
                 {
-                    inUse++;
                     List<HrtfSegment> segs = v.Current.Segments;
                     for (int s = 0; s < segs.Count; s++)
                     {
@@ -194,7 +170,6 @@ namespace Sona
                     }
                 }
             }
-            VoicesInUse = inUse;
         }
 
         void Upload(Voice v, HrtfVoicePlay play, float gain)

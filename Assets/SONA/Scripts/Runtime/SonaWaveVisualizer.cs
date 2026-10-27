@@ -51,8 +51,6 @@ namespace Sona
         bool _visible = true;
         bool _spherical;
 
-        public bool Visible { get { return _visible; } }
-
         void Awake()
         {
             Material dot = SonaGlow.Dot;

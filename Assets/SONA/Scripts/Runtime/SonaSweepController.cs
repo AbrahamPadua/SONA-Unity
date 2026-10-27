@@ -974,6 +974,10 @@ namespace Sona
                         sb.AppendFormat("  |  {0} clusters, {1} voices, {2} dropped",
                                         shown.Hrtf.Clusters.Count, shown.Hrtf.PredictedMaxVoices, hrtfRenderer.DroppedClusters);
                     }
+                    else if (stereoRenderer != null)
+                    {
+                        sb.AppendFormat("  |  {0} grains dropped", stereoRenderer.DroppedVoices);
+                    }
                 }
                 sb.Append("</color>");
             }

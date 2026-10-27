@@ -23,8 +23,6 @@ namespace Sona
         float _yaw, _pitch;
         float _enabledAt;
 
-        public bool DesktopActive { get { return _active; } }
-
         void OnEnable()
         {
             _enabledAt = Time.time;

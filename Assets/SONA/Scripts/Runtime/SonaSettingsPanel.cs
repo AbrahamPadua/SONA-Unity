@@ -133,7 +133,6 @@ namespace Sona
         Vector3 _grabLocal;
 
         public bool Visible { get { return _open; } }
-        public bool Dragging { get { return _dragging; } }
 
         Transform Head
         {
