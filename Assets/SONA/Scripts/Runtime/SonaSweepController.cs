@@ -646,6 +646,7 @@ namespace Sona
             catch (Exception e)
             {
                 Debug.LogWarning("[SONA] Could not write the challenge log: " + e.Message);
+                Message = "Could not save this guess: " + e.Message;
             }
         }
 
