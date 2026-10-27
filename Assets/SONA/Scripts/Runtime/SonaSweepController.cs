@@ -414,9 +414,9 @@ namespace Sona
             if (room.ChallengeRevealed && box.HasValue && head != null)
             {
                 Vector3 d = box.Value - head.position;
-                float az = BearingFromHead(box.Value);
+                double az = SonaChallenge.Bearing(box.Value.ToVec3d(), HeadPose());
                 Message = string.Format("Box: {0:0.0} m away, {1:0}° {2}",
-                                         new Vector2(d.x, d.z).magnitude, Mathf.Abs(az), az >= 0 ? "right" : "left");
+                                         new Vector2(d.x, d.z).magnitude, Math.Abs(az), az >= 0 ? "right" : "left");
             }
             else
             {
@@ -509,11 +509,9 @@ namespace Sona
             if (!black) _savedCameras.Clear();
         }
 
-        float BearingFromHead(Vector3 world)
+        ListenerPose3D HeadPose()
         {
-            Vector3 f = Vector3.ProjectOnPlane(head.forward, Vector3.up);
-            if (f.sqrMagnitude < 1e-6f) f = Vector3.forward;
-            return Vector3.SignedAngle(f.normalized, Vector3.ProjectOnPlane(world - head.position, Vector3.up), Vector3.up);
+            return ListenerPose3D.FromForward(head.position.ToVec3d(), head.forward.ToVec3d(), head.up.ToVec3d());
         }
 
         // ------------------------------------------------------------------ frame loop
@@ -594,19 +592,14 @@ namespace Sona
             Vector3? boxPos = room.MysteryBoxPosition;
             if (!boxPos.HasValue || head == null) return;
             Vector3 box = boxPos.Value;
-            float error = new Vector2(box.x - floorPoint.x, box.z - floorPoint.z).magnitude;
-            float boxBearing = BearingFromHead(box);
-            float guessBearing = BearingFromHead(floorPoint);
-            float bearingError = Mathf.DeltaAngle(boxBearing, guessBearing);
-            float boxDist = new Vector2(box.x - head.position.x, box.z - head.position.z).magnitude;
-            float guessDist = new Vector2(floorPoint.x - head.position.x, floorPoint.z - head.position.z).magnitude;
+            ChallengeScore s = SonaChallenge.Score(box.ToVec3d(), floorPoint.ToVec3d(), HeadPose());
             ShowGuessMarker(floorPoint);
             room.SetChallengeRevealed(true);
             _result = string.Format("Off by {0:0.00} m: your guess was {1:0}° {2} and {3:0.00} m too {4}",
-                                    error, Mathf.Abs(bearingError), bearingError >= 0f ? "right" : "left",
-                                    Mathf.Abs(guessDist - boxDist), guessDist >= boxDist ? "far" : "near");
+                                    s.Error, Math.Abs(s.BearingError), s.BearingError >= 0 ? "right" : "left",
+                                    Math.Abs(s.GuessDistance - s.BoxDistance), s.GuessDistance >= s.BoxDistance ? "far" : "near");
             Message = null;
-            if (logChallengeTrials && !_guessedThisTrial) LogTrial(box, floorPoint, error, boxBearing, guessBearing, boxDist, guessDist);
+            if (logChallengeTrials && !_guessedThisTrial) LogTrial(box, floorPoint, s);
             _guessedThisTrial = true;
         }
 
@@ -636,7 +629,7 @@ namespace Sona
             if (_guessMarker != null) _guessMarker.gameObject.SetActive(false);
         }
 
-        void LogTrial(Vector3 box, Vector3 guess, float error, float boxBearing, float guessBearing, float boxDist, float guessDist)
+        void LogTrial(Vector3 box, Vector3 guess, ChallengeScore s)
         {
             try
             {
@@ -657,8 +650,8 @@ namespace Sona
                     room.walls.ToString(), room.width.ToString("0.0", inv), room.depth.ToString("0.0", inv), room.height.ToString("0.0", inv),
                     _sweepsThisTrial.ToString(inv),
                     box.x.ToString("0.000", inv), box.z.ToString("0.000", inv), guess.x.ToString("0.000", inv), guess.z.ToString("0.000", inv),
-                    error.ToString("0.000", inv), boxDist.ToString("0.000", inv), guessDist.ToString("0.000", inv),
-                    boxBearing.ToString("0.0", inv), guessBearing.ToString("0.0", inv), Mathf.DeltaAngle(boxBearing, guessBearing).ToString("0.0", inv),
+                    s.Error.ToString("0.000", inv), s.BoxDistance.ToString("0.000", inv), s.GuessDistance.ToString("0.000", inv),
+                    s.BoxBearing.ToString("0.0", inv), s.GuessBearing.ToString("0.0", inv), s.BearingError.ToString("0.0", inv),
                 }));
                 File.AppendAllText(_logPath, sb.ToString());
             }
@@ -722,7 +715,7 @@ namespace Sona
                 Id = _nextId++,
                 Quads = quads,
                 Points = points,
-                Pose = ListenerPose3D.FromForward(head.position.ToVec3d(), head.forward.ToVec3d(), head.up.ToVec3d()),
+                Pose = HeadPose(),
                 SamplesPerMeter = samplesPerMeter,
                 FarFromExtent = farFromSceneExtent,
                 FixedFar = fixedFar,

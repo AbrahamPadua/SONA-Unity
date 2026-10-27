@@ -307,6 +307,31 @@ static class Program
             Check(capped && lay.Objects.Count == SonaRoomModel.MaxObjects, "object limit of 25 enforced");
         }
 
+        // ---- Challenge scoring (known answers; + = right of the box) ----
+        {
+            double side = Math.Atan(1.0 / 3.0) * SonaMath.Rad2Deg;   // 1 m off at 3 m: 18.43 degrees
+            var up = new Vec3d(0, 1, 0);
+            var facingZ = ListenerPose3D.FromForward(Vec3d.Zero, new Vec3d(0, 0, 1), up);
+            ChallengeScore s = SonaChallenge.Score(new Vec3d(0, 0.5, 3), new Vec3d(1, 0, 3), facingZ);
+            Check(Math.Abs(s.Error - 1.0) < 1e-12 && Math.Abs(s.BoxDistance - 3.0) < 1e-12 && Math.Abs(s.GuessDistance - Math.Sqrt(10.0)) < 1e-12,
+                  "challenge: guess 1 m right of a box 3 m ahead is 1 m off, at 3 m and 3.16 m");
+            Check(Math.Abs(s.BoxBearing) < 1e-9 && Math.Abs(s.BearingError - side) < 1e-9, "challenge: that guess is 18.43 degrees right");
+
+            var facingX = ListenerPose3D.FromForward(Vec3d.Zero, new Vec3d(1, 0, 0), up);
+            ChallengeScore right = SonaChallenge.Score(new Vec3d(3, 0, 0), new Vec3d(3, 0, -1), facingX);
+            ChallengeScore left = SonaChallenge.Score(new Vec3d(3, 0, 0), new Vec3d(3, 0, 1), facingX);
+            Check(Math.Abs(right.BearingError - side) < 1e-9 && Math.Abs(left.BearingError + side) < 1e-9,
+                  "challenge: facing +X, -Z is right and +Z is left");
+
+            double behind = Math.Atan(0.1 / 3.0) * SonaMath.Rad2Deg;
+            ChallengeScore wrap = SonaChallenge.Score(new Vec3d(-0.1, 0, -3), new Vec3d(0.1, 0, -3), facingZ);
+            Check(Math.Abs(wrap.BearingError + 2.0 * behind) < 1e-9, "challenge: errors across straight behind wrap to a few degrees, not 356");
+
+            var lookingDown = ListenerPose3D.FromForward(Vec3d.Zero, new Vec3d(0, -1, 0), new Vec3d(0, 0, 1));
+            ChallengeScore down = SonaChallenge.Score(new Vec3d(0, 0, 3), new Vec3d(1, 0, 3), lookingDown);
+            Check(Math.Abs(down.BearingError - side) < 1e-9, "challenge: looking straight down still scores from the way the head faces");
+        }
+
         Console.WriteLine(s_failures == 0 ? "C# CHECKS: ALL PASS" : ("C# CHECKS: " + s_failures + " FAILED"));
         return s_failures == 0 ? 0 : 1;
     }

@@ -105,8 +105,9 @@ Leaving Challenge brings your objects back.
 
 Every guess is appended to `sona_challenge_log_v2.csv` in `Application.persistentDataPath` (on the
 Quest: `Android/data/com.DefaultCompany.SONAquest/files/`). Trial numbers restart at every launch,
-so the first column, `session`, holds the launch time to keep sessions apart. Older builds wrote
-`sona_challenge_log.csv` without the session column; that file is left in place.
+so the first column, `session`, holds the launch time to keep sessions apart. The scoring is in
+`Core/SonaChallenge.cs`, and the parity harness checks it. Older builds wrote `sona_challenge_log.csv`
+without the session column; that file is left in place.
 
 **Copy the log off the headset after every session.** Android deletes the app's folder on uninstall,
 and the app turns off Android backup. Uninstalling is also the usual way out when the headset refuses
