@@ -61,7 +61,8 @@ for m in meta:
         rms = np.sqrt(np.mean(pa.astype(np.float64) ** 2))
         res["live_rel_rms_err"] = float(np.sqrt(np.mean((pa - ml).astype(np.float64) ** 2)) / max(rms, 1e-12))
     good = (res["returns_n"][0] == res["returns_n"][1] and res["plan_n"][0] == res["plan_n"][1]
-            and res.get("ret_pos", 1) < 1e-9 and res.get("ret_az", 1) < 1e-9 and res.get("plan_onset", 1) < 1e-9
+            and res.get("ret_pos", 1) < 1e-9 and res.get("ret_az", 1) < 1e-9 and res.get("ret_el", 1) < 1e-9
+            and res.get("ret_rng", 1) < 1e-9 and res.get("plan_onset", 1) < 1e-9
             and res.get("plan_amp", 1) < 1e-9 and res.get("plan_freq", 1) < 1e-6 and res.get("plan_pos", 1) < 1e-9
             and res.get("audio_offline_maxdiff", 1) < 1e-6 and res.get("mixer_frozen_vs_python", 1) < 1e-5)
     ok &= good
@@ -69,3 +70,4 @@ for m in meta:
     for k, v in res.items():
         print(f"    {k:24s} {v}")
 print("ALL PASS" if ok else "SOME FAILED")
+sys.exit(0 if ok else 1)
