@@ -84,7 +84,6 @@ namespace Sona.Core
             ListenerPose3D listener,
             double samplesPerMeter = 5.0,
             double? maxRange = 8.0,
-            IList<SurfacePoint> extraPoints = null,
             List<Return3D> output = null,
             bool spherical = false)
         {
@@ -113,18 +112,6 @@ namespace Sona.Core
                         {
                             returns.Add(ret);
                         }
-                    }
-                }
-            }
-            if (extraPoints != null)
-            {
-                for (int k = 0; k < extraPoints.Count; k++)
-                {
-                    SurfacePoint sp = extraPoints[k];
-                    Return3D ret;
-                    if (TryMakeReturn(sp.Position, listener, maxRange, sp.Normal, sp.SourceId, sp.Material, out ret, spherical))
-                    {
-                        returns.Add(ret);
                     }
                 }
             }

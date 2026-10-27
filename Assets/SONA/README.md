@@ -178,9 +178,8 @@ The harness is in `Tools/SonaParity` (outside Assets, so Unity ignores it).
 - **Tracking origin must be Floor Level** (the setup menu sets it). The HUD warns if your head
   is under 0.5 m, which usually means Eye Level.
 - Geometry is still X-ray (no occlusion), exactly like the Python prototype.
-- Any GameObject with a **SONA Surface** component is heard: `Box` (Cube primitive), `Quad`
-  (Quad primitive), or `Mesh` (any Read/Write-enabled mesh, area-sampled; for scanned rooms later).
-  Tag a floor with surface tag `floor` to get the low floor tone.
+- Any GameObject with a **SONA Surface** component is heard: `Box` (Cube primitive) or `Quad`
+  (Quad primitive). Tag a floor with surface tag `floor` to get the low floor tone.
 - In HRTF mode a repeat can start a few tens of milliseconds late if voices are still busy;
   stereo repeats are sample-exact.
 - Keep the Unity project out of OneDrive if you can: OneDrive locks files during imports and

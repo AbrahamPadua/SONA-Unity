@@ -36,23 +36,6 @@ namespace Sona.Core
         }
     }
 
-    /// <summary>A single pre-sampled surface point (used for arbitrary meshes and future depth sensors).</summary>
-    public struct SurfacePoint
-    {
-        public Vec3d Position;
-        public Vec3d Normal;
-        public string SourceId;
-        public string Material;
-
-        public SurfacePoint(Vec3d position, Vec3d normal, string sourceId, string material)
-        {
-            Position = position;
-            Normal = normal;
-            SourceId = sourceId;
-            Material = material;
-        }
-    }
-
     /// <summary>
     /// One direction-plus-distance sample (returns.py Return).
     /// Azimuth is relative to the listener heading at ping time; elevation is gravity-referenced.

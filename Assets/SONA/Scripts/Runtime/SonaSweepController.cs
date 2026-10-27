@@ -118,7 +118,6 @@ namespace Sona
         {
             public int Id;
             public List<SurfaceQuad> Quads;
-            public List<SurfacePoint> Points;
             public ListenerPose3D Pose;
             public double SamplesPerMeter;
             public bool FarFromExtent;
@@ -680,12 +679,10 @@ namespace Sona
                 return null;
             }
             var quads = new List<SurfaceQuad>(64);
-            var points = new List<SurfacePoint>();
             List<SonaSurface> surfaces = SonaSurface.Active;
             for (int i = 0; i < surfaces.Count; i++)
             {
                 surfaces[i].AppendQuads(quads);
-                surfaces[i].AppendPoints(points, samplesPerMeter);
             }
             EnsureBank();
             var pitch = new PitchMapper { ElevationToPitch = elevationToPitch };
@@ -714,7 +711,6 @@ namespace Sona
             {
                 Id = _nextId++,
                 Quads = quads,
-                Points = points,
                 Pose = HeadPose(),
                 SamplesPerMeter = samplesPerMeter,
                 FarFromExtent = farFromSceneExtent,
@@ -766,7 +762,7 @@ namespace Sona
             {
                 double? maxRange = input.FarFromExtent ? (double?)null : input.FixedFar;
                 List<Return3D> returns = SonaFrontend.SurfaceEmission(input.Quads, input.Pose, input.SamplesPerMeter, maxRange,
-                                                                      input.Points, null, input.Spherical);
+                                                                      null, input.Spherical);
                 EncodingParams ep = input.Encoding;
                 ep.Far = input.FarFromExtent ? Math.Max(SonaFrontend.MaxPropagationRange(returns), 1e-6) : input.FixedFar;
                 List<ScheduledReturn> plan = SonaEncoder.Encode(returns, ep);
