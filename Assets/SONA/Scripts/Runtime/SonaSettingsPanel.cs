@@ -10,7 +10,8 @@
 //
 // Each tab opens a popup above the bar (press the tab again to close it). To move the bar, hold the
 // trigger (or the left mouse button) on "Move" or on the bar's background and point somewhere else; it
-// keeps facing you. The left Menu button (Tab) opens and closes it.
+// keeps facing you. The left Menu button (Tab) opens and closes it. If you turn or walk away from it (or
+// the headset recenters), it comes back to the same spot in front of you after a second.
 using System;
 using System.Collections.Generic;
 using Sona.Core;
@@ -91,6 +92,8 @@ namespace Sona
         const int FontSize = 64;
         const int TabCount = 5;
         const int HelpTab = 4;
+        // Out of view = turned more than this far away (left/right only, so looking down does not count) or this far off.
+        const float MaxYawDegrees = 60f, MaxDistance = 2.5f, ReturnDelay = 1f;
 
         sealed class PopRow
         {
@@ -123,6 +126,8 @@ namespace Sona
         float _startTime;
         float _labelTimer;
         Vector3 _placedFrom;
+        Vector3 _offset;   // where the bar sits relative to your head, facing direction only
+        float _outOfViewSince = -1f;
         bool _dragging;
         float _grabDistance;
         Vector3 _grabLocal;
@@ -157,9 +162,27 @@ namespace Sona
 
         void LateUpdate()
         {
-            if (!_open || _userPlaced || _dragging || Time.time - _startTime > autoPlaceSeconds) return;
             Transform h = Head;
-            if (h != null && (h.position - _placedFrom).sqrMagnitude > 0.3f * 0.3f) PlaceInFront();
+            if (!_open || _dragging || h == null) return;
+            if (!_userPlaced && Time.time - _startTime <= autoPlaceSeconds)
+            {
+                if ((h.position - _placedFrom).sqrMagnitude > 0.3f * 0.3f) PlaceInFront();
+                return;
+            }
+            // Keep the menu findable: once it has been out of view for a moment, put it back where it was relative to you.
+            if (InFrontOfHead())
+            {
+                _outOfViewSince = -1f;
+            }
+            else if (_outOfViewSince < 0f)
+            {
+                _outOfViewSince = Time.time;
+            }
+            else if (Time.time - _outOfViewSince > ReturnDelay)
+            {
+                PlaceAtOffset();
+                _outOfViewSince = -1f;
+            }
         }
 
         void EnsureBuilt()
@@ -169,6 +192,7 @@ namespace Sona
             if (controller == null) controller = FindAnyObjectByType<SonaSweepController>();
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (uiMaterial == null) uiMaterial = SonaMaterialUtil.FallbackUnlit();
+            _offset = new Vector3(0f, openHeight, openDistance);
             Build();
         }
 
@@ -185,7 +209,7 @@ namespace Sona
             }
             if (!InFrontOfHead())
             {
-                PlaceInFront();
+                PlaceAtOffset();
                 return;
             }
             Close();
@@ -195,7 +219,7 @@ namespace Sona
         {
             EnsureBuilt();
             SetOpen(true);
-            PlaceInFront();
+            PlaceAtOffset();
         }
 
         public void Close()
@@ -217,21 +241,46 @@ namespace Sona
         {
             Transform h = Head;
             if (h == null) return true;
-            Vector3 toBar = transform.position - h.position;
-            return toBar.magnitude < 2.5f && Vector3.Angle(h.forward, toBar) < 55f;
+            return InView(Quaternion.Inverse(HeadYaw(h)) * (transform.position - h.position));
+        }
+
+        /// <summary>An offset in the head's facing frame (+z ahead) that you would see without turning.</summary>
+        static bool InView(Vector3 offset)
+        {
+            return offset.magnitude < MaxDistance && Vector3.Angle(Vector3.forward, new Vector3(offset.x, 0f, offset.z)) < MaxYawDegrees;
+        }
+
+        /// <summary>Which way the head faces around the vertical axis (ignores looking up or down).</summary>
+        static Quaternion HeadYaw(Transform h)
+        {
+            Vector3 flat = Vector3.ProjectOnPlane(h.forward, Vector3.up);
+            if (flat.sqrMagnitude < 1e-4f) flat = Vector3.ProjectOnPlane(h.up, Vector3.up);
+            if (flat.sqrMagnitude < 1e-4f) flat = Vector3.forward;
+            return Quaternion.LookRotation(flat.normalized, Vector3.up);
         }
 
         public void PlaceInFront()
         {
+            _offset = new Vector3(0f, openHeight, openDistance);
+            PlaceAtOffset();
+        }
+
+        void PlaceAtOffset()
+        {
             Transform h = Head;
             if (h == null || _root == null) return;
             _placedFrom = h.position;
-            Vector3 flat = Vector3.ProjectOnPlane(h.forward, Vector3.up);
-            if (flat.sqrMagnitude < 1e-4f) flat = Vector3.ProjectOnPlane(h.up, Vector3.up);
-            if (flat.sqrMagnitude < 1e-4f) flat = Vector3.forward;
-            flat.Normalize();
-            Vector3 pos = h.position + flat * openDistance + Vector3.up * openHeight;
+            Vector3 pos = h.position + HeadYaw(h) * _offset;
             transform.SetPositionAndRotation(pos, FacingRotation(pos));
+        }
+
+        /// <summary>After a drag: come back to this spot later, unless it is somewhere you cannot see.</summary>
+        void RememberOffset()
+        {
+            Transform h = Head;
+            if (h == null) return;
+            Vector3 offset = Quaternion.Inverse(HeadYaw(h)) * (transform.position - h.position);
+            if (InView(offset)) _offset = offset;
         }
 
         Quaternion FacingRotation(Vector3 pos)
@@ -278,7 +327,11 @@ namespace Sona
             if (_dragging)
             {
                 if (selectHeld && pointer != null && pointer.Active) UpdateDrag(pointer);
-                if (!selectHeld || selectUp) _dragging = false;
+                if (!selectHeld || selectUp)
+                {
+                    _dragging = false;
+                    RememberOffset();
+                }
                 RefreshColors(null);
                 return true;
             }

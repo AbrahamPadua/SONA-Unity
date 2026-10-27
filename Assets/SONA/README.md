@@ -79,8 +79,10 @@ brightness).
 The menu opens below eye level in front of you, with Help showing on first launch. For the first
 few seconds it re-centres itself while head tracking starts. To move it, hold the trigger on
 `Move` (or the bar's background) and point somewhere else; it follows the laser at the same
-distance and keeps facing you. Menu (Tab) opens it in front of you again, or brings it back if you
-walked away from it.
+distance and keeps facing you. If you turn more than 60 degrees away from it, walk more than 2.5 m
+off, or the headset recenters, it comes back after a second to the same spot in front of you (the
+spot you dragged it to, if you moved it). Looking down at the floor does not move it. Menu (Tab)
+opens it in front of you again.
 
 Each tab opens a popup above the bar; press the tab again to close it.
 
