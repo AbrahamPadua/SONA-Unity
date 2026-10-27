@@ -21,6 +21,18 @@ namespace Sona
             return new QuatD(q.x, q.y, q.z, q.w);
         }
 
+        /// <summary>The transform itself or its first descendant with this name (depth first), or null.</summary>
+        public static Transform FindDeep(Transform t, string name)
+        {
+            if (t.name == name) return t;
+            for (int i = 0; i < t.childCount; i++)
+            {
+                Transform found = FindDeep(t.GetChild(i), name);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
         /// <summary>Destroy that is safe in edit mode and play mode.</summary>
         public static void SafeDestroy(Object obj)
         {

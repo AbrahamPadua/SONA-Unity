@@ -216,7 +216,7 @@ namespace Sona
                 go.transform.SetParent(transform, false);
                 pointer = go.AddComponent<SonaPointer>();
             }
-            if (pointer.rayOrigin == null && rigRoot != null) pointer.rayOrigin = FindDeep(rigRoot, "RightHandAnchor");
+            if (pointer.rayOrigin == null && rigRoot != null) pointer.rayOrigin = SonaUnity.FindDeep(rigRoot, "RightHandAnchor");
             if (pointer.viewCamera == null && head != null) pointer.viewCamera = head.GetComponent<Camera>();
             if (settingsPanel == null)
             {
@@ -231,17 +231,6 @@ namespace Sona
             {
                 rigRoot.gameObject.AddComponent<SonaDesktopRig>();
             }
-        }
-
-        static Transform FindDeep(Transform t, string name)
-        {
-            if (t.name == name) return t;
-            for (int i = 0; i < t.childCount; i++)
-            {
-                Transform found = FindDeep(t.GetChild(i), name);
-                if (found != null) return found;
-            }
-            return null;
         }
 
         void Start()

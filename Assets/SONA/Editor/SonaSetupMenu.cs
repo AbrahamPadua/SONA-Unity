@@ -303,8 +303,8 @@ namespace Sona.EditorTools
                         Debug.LogWarning("[SONA] Set OVRManager > Tracking Origin Type = Floor Level by hand.");
                     }
                 }
-                rightHand = FindDeep(rig.transform, "RightHandAnchor");
-                Transform center = FindDeep(rig.transform, "CenterEyeAnchor");
+                rightHand = SonaUnity.FindDeep(rig.transform, "RightHandAnchor");
+                Transform center = SonaUnity.FindDeep(rig.transform, "CenterEyeAnchor");
                 if (center != null) return center;
                 Debug.LogWarning("[SONA] CenterEyeAnchor not found; using the rig root as the head.");
                 return rig.transform;
@@ -318,17 +318,6 @@ namespace Sona.EditorTools
             camGo.AddComponent<Camera>();
             camGo.AddComponent<AudioListener>();
             return camGo.transform;
-        }
-
-        static Transform FindDeep(Transform t, string name)
-        {
-            if (t.name == name) return t;
-            for (int i = 0; i < t.childCount; i++)
-            {
-                Transform found = FindDeep(t.GetChild(i), name);
-                if (found != null) return found;
-            }
-            return null;
         }
 
         static Material MakeMaterial(string name, Shader shader, Color color)
