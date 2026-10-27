@@ -39,18 +39,6 @@ namespace Sona.Core
             return baseFreq * Math.Pow(2.0, (octave * 12.0 + nearest) / 12.0);
         }
 
-        /// <summary>Ordinary surfaces use the elevation melody; the floor is a fixed low carrier.</summary>
-        public static double SurfaceToFreq(double elevation, string material, double floorFrequency = FloorFrequency)
-        {
-            if (SonaMaterials.IsFloor(material))
-            {
-                if (!SonaMath.IsFinite(floorFrequency) || floorFrequency <= 0.0)
-                    throw new ArgumentException("floor frequency must be positive and finite");
-                return floorFrequency;
-            }
-            return ElevationToFreq(elevation);
-        }
-
         /// <summary>Every frequency the default mapping can produce (useful for pre-building grains).</summary>
         public static List<double> AllElevationFrequencies()
         {

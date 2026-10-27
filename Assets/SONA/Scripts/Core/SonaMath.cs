@@ -52,11 +52,6 @@ namespace Sona.Core
             }
         }
 
-        public bool IsFinite
-        {
-            get { return SonaMath.IsFinite(X) && SonaMath.IsFinite(Y) && SonaMath.IsFinite(Z); }
-        }
-
         public override string ToString()
         {
             return string.Format("({0:0.###}, {1:0.###}, {2:0.###})", X, Y, Z);
@@ -79,8 +74,6 @@ namespace Sona.Core
             Z = z;
             W = w;
         }
-
-        public static readonly QuatD Identity = new QuatD(0.0, 0.0, 0.0, 1.0);
 
         /// <summary>Rotation about +Y (yaw), clockwise seen from above, like Quaternion.Euler(0, deg, 0).</summary>
         public static QuatD FromYawDegrees(double degrees)
@@ -143,11 +136,6 @@ namespace Sona.Core
             return v < lo ? lo : (v > hi ? hi : v);
         }
 
-        public static double Clamp01(double v)
-        {
-            return Clamp(v, 0.0, 1.0);
-        }
-
         /// <summary>Python's float modulo: the result takes the sign of the divisor.</summary>
         public static double FloorMod(double x, double m)
         {
@@ -168,17 +156,6 @@ namespace Sona.Core
         public static double Hypot(double a, double b)
         {
             return Math.Sqrt(a * a + b * b);
-        }
-
-        /// <summary>Clockwise-from-forward azimuth of a direction (+ = right), Python atan2(x, forward).</summary>
-        public static double Azimuth(Vec3d direction)
-        {
-            return Math.Atan2(direction.X, direction.Z);
-        }
-
-        public static double DbToGain(double db)
-        {
-            return Math.Pow(10.0, db / 20.0);
         }
     }
 }
