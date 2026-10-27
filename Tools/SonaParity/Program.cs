@@ -300,6 +300,144 @@ static class Program
             Check(Math.Abs(down.BearingError - side) < 1e-9, "challenge: looking straight down still scores from the way the head faces");
         }
 
+        // ---- Study stimuli (Proposal 1.2): known answers ----
+        {
+            var sp = new StudyParams();
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var st = new StudyStimulus(sp);
+            Console.WriteLine(string.Format("  study: box {0} ms, box + tail {1} ms, interval {2} ms, built in {3} ms",
+                1000 * st.DryFrames / sp.SampleRate, 1000 * st.BoxFrames / sp.SampleRate, 1000 * st.IntervalFrames / sp.SampleRate, watch.ElapsedMilliseconds));
+
+            Check(Math.Abs(sp.DelaySeconds(2.0) - 1.2 * Math.Sqrt(0.4)) < 1e-12 && Math.Abs(sp.DrrDb(2.0) - 5.0) < 1e-12
+                  && Math.Abs(sp.DrrDb(4.0) - (5.0 - 20.0 * Math.Log10(2.0))) < 1e-12,
+                  "study: delay is 759 ms at 2 m; DRR is +5 dB at 2 m and 6.02 dB lower at 4 m");
+
+            int gap = (int)Math.Round(sp.TailGap * sp.SampleRate);
+            Func<double[], int, double> windowDb = (n, at) =>
+            {
+                double e = 0.0;
+                for (int k = at; k < at + 441; k++) e += n[k] * n[k];
+                return 10.0 * Math.Log10(e);
+            };
+            bool tailsOk = true;
+            double worstDecay = 0.0;
+            foreach (double[] n in st.Tail)
+            {
+                double e = 0.0;
+                foreach (double v in n) e += v * v;
+                tailsOk &= Math.Abs(e - 1.0) < 1e-12;
+                int late = n.Length - 441 - 1;
+                double expected = 60.0 * late / (sp.T60 * sp.SampleRate);
+                worstDecay = Math.Max(worstDecay, Math.Abs(windowDb(n, 0) - windowDb(n, late) - expected));
+            }
+            bool gapSilent = true;
+            for (int i = 0; i < gap * 2; i++) gapSilent &= st.Wet[i] == 0.0;
+            Check(tailsOk && worstDecay < 1.5 && gapSilent,
+                  string.Format("study: each ear's tail has unit energy, decays 60 dB per T60 (worst error {0:F2} dB), starts after a {1} ms gap",
+                                worstDecay, 1000.0 * gap / sp.SampleRate));
+
+            // Render single intervals and measure what reached the buffer.
+            Func<StudyInterval, Tuple<float[], StudyInterval>> one = iv =>
+            {
+                var buf = new float[st.IntervalFrames * 2];
+                st.Render(ref iv, buf, 0);
+                return Tuple.Create(buf, iv);
+            };
+            double worstDrr = 0.0, worstRms = 0.0, worstSample = 0.0, worstSignal = 0.0, worstPeak = 0.0;
+            bool silentElsewhere = true;
+            foreach (double drr in new[] { -10.0, 0.0, 5.0, 10.0, 20.0, double.PositiveInfinity })
+            {
+                var r = one(new StudyInterval { Click = true, Onset = sp.DelaySeconds(2.0), DrrDb = drr, GainDb = sp.RoveDb });
+                float[] buf = r.Item1;
+                StudyInterval iv = r.Item2;
+                double g = Math.Pow(10.0, sp.RoveDb / 20.0);
+                long b = iv.BoxSample * 2;
+                bool dry = double.IsPositiveInfinity(drr);
+                double ad = dry ? 1.0 : Math.Pow(10.0, drr / 20.0), ar = dry ? 0.0 : 1.0;
+                double scale = g * sp.TargetRms * Math.Sqrt(2.0 * st.BoxFrames / (ad * ad * st.DryEnergy + ar * ar * st.WetEnergy + 2 * ad * ar * st.CrossEnergy));
+                // Least squares of the written box onto the dry and wet parts recovers the DRR actually played.
+                double yd = 0.0, yw = 0.0;
+                for (int i = 0; i < st.Wet.Length; i++)
+                {
+                    double y = buf[b + i];
+                    double d = i < st.Dry.Length ? st.Dry[i] : 0.0;
+                    yd += y * d;
+                    yw += y * st.Wet[i];
+                    worstSample = Math.Max(worstSample, Math.Abs(y - scale * (ad * d + ar * st.Wet[i])));
+                }
+                if (!dry)
+                {
+                    double det = st.DryEnergy * st.WetEnergy - st.CrossEnergy * st.CrossEnergy;
+                    double alpha = (yd * st.WetEnergy - yw * st.CrossEnergy) / det;
+                    double beta = (st.DryEnergy * yw - st.CrossEnergy * yd) / det;
+                    worstDrr = Math.Max(worstDrr, Math.Abs(20.0 * Math.Log10(alpha / beta) - drr));
+                    worstSignal = Math.Max(worstSignal, Math.Abs(iv.SignalDrrDb - drr));
+                }
+                worstRms = Math.Max(worstRms, Math.Abs(iv.BoxRms / g / sp.TargetRms - 1.0));
+                worstPeak = Math.Max(worstPeak, iv.Peak);
+                for (long i = (st.LeadFrames + st.Click.Length) * 2L; i < b; i++) silentElsewhere &= buf[i] == 0f;
+                for (long i = b + st.Wet.Length; i < buf.Length; i++) silentElsewhere &= buf[i] == 0f;
+            }
+            Check(worstDrr < 1e-3, string.Format("study: the DRR measured in the output matches the request from -10 to +20 dB (worst {0:E1} dB)", worstDrr));
+            Check(worstRms < 1e-5, string.Format("study: every DRR plays at the same box RMS (worst relative error {0:E1})", worstRms));
+            Check(worstSample < 1e-6, string.Format("study: the box lands on its onset sample, sample for sample (worst {0:E1})", worstSample));
+            Check(silentElsewhere, "study: silence between the click and the box, and after the tail");
+            Check(worstSignal < 1.0, string.Format("study: the box's own DRR stays within 1 dB of the kernel's (offset {0:F2} dB, logged per interval)", worstSignal));
+            Check(worstPeak < 1.0, string.Format("study: no clipping at +{0} dB roving (peak {1:F3})", sp.RoveDb, worstPeak));
+
+            var quiet = one(new StudyInterval { Click = true, Onset = 0.8, DrrDb = 5.0, GainDb = 0.0 });
+            var loud = one(new StudyInterval { Click = true, Onset = 0.8, DrrDb = 5.0, GainDb = 3.7 });
+            Func<float[], double> clickPeak = buf =>
+            {
+                double m = 0.0;
+                for (int i = st.LeadFrames * 2; i < (st.LeadFrames + st.Click.Length) * 2; i++) m = Math.Max(m, Math.Abs(buf[i]));
+                return m;
+            };
+            double want = Math.Pow(10.0, 3.7 / 20.0);
+            Check(Math.Abs(clickPeak(loud.Item1) / clickPeak(quiet.Item1) / want - 1.0) < 1e-6 && Math.Abs(loud.Item2.BoxRms / quiet.Item2.BoxRms / want - 1.0) < 1e-6,
+                  "study: roving moves the click and the box together");
+            var latest = one(new StudyInterval { Click = true, Onset = sp.SweepDuration, DrrDb = -10.0, GainDb = 0.0 });
+            Check(latest.Item2.BoxSample + st.BoxFrames <= st.IntervalFrames, "study: the latest onset still fits the fixed interval length");
+
+            // Trial plans.
+            StudyCondition delayOnly = StudyCondition.All[0], drrOnly = StudyCondition.All[1], congruent = StudyCondition.All[4];
+            double maxFar = StudyTrials.MaxDelta(sp, delayOnly, +1);
+            bool threw = false;
+            try { int o; StudyTrials.Plan(sp, delayOnly, maxFar + 0.01, +1, new StudyRandom(3), out o); }
+            catch (ArgumentOutOfRangeException) { threw = true; }
+            Check(Math.Abs(maxFar - (Math.Log(2.5) - 0.175)) < 1e-12 && threw,
+                  string.Format("study: a farther delay shift stops at {0:F3} ln units (box would leave the sweep), and Plan refuses more", maxFar));
+
+            var prng = new StudyRandom(11);
+            var oddCounts = new int[3];
+            bool shapeOk = true, gainsOk = true;
+            for (int t = 0; t < 3000; t++)
+            {
+                int sign = t % 2 == 0 ? 1 : -1, odd;
+                StudyInterval[] ivs = StudyTrials.Plan(sp, congruent, 0.3, sign, prng, out odd);
+                oddCounts[odd]++;
+                int s1 = (odd + 1) % 3, s2 = (odd + 2) % 3;
+                shapeOk &= ivs[s1].DelayDistance == ivs[s2].DelayDistance && ivs[s1].DrrDb == ivs[s2].DrrDb
+                           && Math.Abs(Math.Log(ivs[odd].DelayDistance / ivs[s1].DelayDistance) - sign * 0.3) < 1e-9
+                           && Math.Abs(Math.Log(ivs[odd].DrrDistance / ivs[s1].DrrDistance) - sign * 0.3) < 1e-9;
+                foreach (StudyInterval iv in ivs) gainsOk &= Math.Abs(iv.GainDb) <= sp.RoveDb;
+            }
+            Check(shapeOk && gainsOk && oddCounts[0] > 900 && oddCounts[1] > 900 && oddCounts[2] > 900,
+                  string.Format("study: plans share one standard, move only the odd interval, and spread it evenly ({0}/{1}/{2})", oddCounts[0], oddCounts[1], oddCounts[2]));
+
+            bool isolatedOk = true;
+            double minOnset = sp.DelaySeconds(sp.MinDistance);
+            for (int t = 0; t < 300; t++)
+            {
+                int o;
+                foreach (StudyInterval iv in StudyTrials.Plan(sp, drrOnly, 0.3, 1, prng, out o))
+                    isolatedOk &= !iv.Click && double.IsNaN(iv.DelayDistance) && iv.Onset >= minOnset && iv.Onset <= sp.SweepDuration;
+                foreach (StudyInterval iv in StudyTrials.Plan(sp, delayOnly, 0.3, 1, prng, out o))
+                    isolatedOk &= iv.Click && double.IsPositiveInfinity(iv.DrrDb) && double.IsNaN(iv.DrrDistance);
+            }
+            Check(isolatedOk, "study: DRR-only trials drop the click and jitter the onset; delay-only trials are dry");
+        }
+
         Console.WriteLine(s_failures == 0 ? "C# CHECKS: ALL PASS" : ("C# CHECKS: " + s_failures + " FAILED"));
         return s_failures == 0 ? 0 : 1;
     }
