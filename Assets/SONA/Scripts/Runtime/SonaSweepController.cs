@@ -390,6 +390,8 @@ namespace Sona
                 _guessedThisTrial = false;
                 _result = null;
                 HideGuessMarker();
+                // The next step is sweep and guess, and an open menu would hold the trigger.
+                if (settingsPanel != null) settingsPanel.Close();
                 Message = string.Format("Trial {0}: a new box is hidden", _trial);
             }
             else
@@ -544,25 +546,43 @@ namespace Sona
             if (hrtfRenderer != null) hrtfRenderer.Volume = volume;
         }
 
-        /// <summary>Challenge: the trigger places a guess on the floor, then starts the next box.</summary>
+        /// <summary>
+        /// Challenge: the trigger places a guess on the floor, then starts the next box. A trigger press that
+        /// does nothing says why on the HUD.
+        /// </summary>
         void HandlePointer(bool clickUsedByPanel)
         {
-            if (pointer == null || room == null || _mode != SonaMode.Challenge || !_input.SelectDown) return;
+            if (pointer == null || room == null || !_input.SelectDown || clickUsedByPanel) return;
+            string menu = UnityEngine.XR.XRSettings.isDeviceActive ? "Menu" : "Tab";
             // While the menu is open the trigger only works on the menu, so a missed button never becomes a guess.
-            if (clickUsedByPanel || (settingsPanel != null && settingsPanel.Visible)) return;
+            if (settingsPanel != null && settingsPanel.Visible)
+            {
+                Message = "Point at a menu button, or press " + menu + " to close the menu";
+                return;
+            }
+            if (_mode != SonaMode.Challenge)
+            {
+                Message = "The trigger guesses in Challenge: press " + menu + ", then Trial > Next box";
+                return;
+            }
             if (_guessedThisTrial)
             {
                 NewChallengeBox();
                 return;
             }
             // Where the ray meets the floor plane, if that spot is actually visible (not behind a wall).
-            Vector3 planePoint;
-            if (pointer.HitPanel || !pointer.RayToPlane(room.FloorY, out planePoint)) return;
-            if (pointer.HasHit && !pointer.HitIsFloor)
+            Vector3 planePoint = Vector3.zero;
+            bool onFloor = !pointer.HitPanel && pointer.RayToPlane(room.FloorY, out planePoint);
+            if (onFloor && pointer.HasHit && !pointer.HitIsFloor)
             {
                 float toPlane = Vector3.Distance(pointer.CurrentRay.origin, planePoint);
                 float toHit = Vector3.Distance(pointer.CurrentRay.origin, pointer.HitPoint);
-                if (toHit < toPlane - 0.01f) return;
+                if (toHit < toPlane - 0.01f) onFloor = false;
+            }
+            if (!onFloor)
+            {
+                Message = "Point at the floor where you think the box is";
+                return;
             }
             Guess(planePoint);
         }

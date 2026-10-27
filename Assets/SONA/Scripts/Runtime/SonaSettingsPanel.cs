@@ -480,7 +480,7 @@ namespace Sona
                 "MODES\n" +
                 "Explore:  sweep and listen. Gold dots show what you heard.\n" +
                 "Challenge:  a hidden box. Find it by ear, then guess.\n" +
-                "    Close the menu before guessing.";
+                "    Starting a box closes this menu.";
             if (!xr) text += "\n\nDesktop: hold the right mouse button to look, W A S D to walk.";
             return text;
         }

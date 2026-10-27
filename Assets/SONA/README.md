@@ -40,7 +40,8 @@ The controller uses three buttons. Everything else is in the menu.
 | Left Menu | Tab | Open or close the menu. It also ends blackout |
 
 While the menu is open the trigger only works on the menu, so a missed button never counts as a
-guess. Close the menu before guessing.
+guess. Starting a box closes the menu for you. When a trigger pull does nothing (menu open, not in
+Challenge, or not pointing at the floor), the HUD says why.
 
 ## The HUD
 
@@ -97,9 +98,9 @@ Each tab opens a popup above the bar; press the tab again to close it.
 Objects stay where they are when you change walls or size (they are clamped inside the room).
 
 **Challenge** replaces the objects with one hidden 1 x 1 x 1 m box at least 1.5 m away (the Python
-Random Box). Sweep, close the menu, then point at the floor where you think the box is and pull the
-trigger. The box is revealed and the HUD shows how far off you were, with the bearing and distance
-errors. Pull the trigger again for the next box. Every guess is appended to
+Random Box). Starting a box (Next box, or choosing Challenge) closes the menu. Sweep, then point at
+the floor where you think the box is and pull the trigger. The box is revealed and the HUD shows
+how far off you were, with the bearing and distance errors. Pull the trigger again for the next box. Every guess is appended to
 `sona_challenge_log.csv` in `Application.persistentDataPath` (on the Quest:
 `Android/data/<package>/files/`, readable from Meta Quest Developer Hub). Leaving Challenge brings
 your objects back.
