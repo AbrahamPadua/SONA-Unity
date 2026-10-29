@@ -2,7 +2,8 @@
 
 SONA is a Unity port of the echolocation prototype for Meta Quest. It uses head
 tracking for spatial audio. In Explore you send sweeps and listen; in Challenge
-you find a hidden box by ear and guess where it is.
+you find a hidden box by ear and guess where it is. Study runs the Proposal 1.2
+listening test (see `Assets/SONA/README.md`).
 
 ## Open and run
 

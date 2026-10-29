@@ -281,6 +281,39 @@ namespace Sona.Core
             }
             return intervals;
         }
+
+        /// <summary>
+        /// Training: <paramref name="targets"/> distances evenly spaced in ln distance from MinDistance to Far, each played
+        /// once with delay alone (dry) and once with delay and DRR together, in random order (2 * targets trials).
+        /// </summary>
+        public static StudyInterval[] TrainingSchedule(StudyParams p, int targets, StudyRandom rng)
+        {
+            if (targets < 1) throw new ArgumentOutOfRangeException("targets", "need at least one target");
+            double lo = Math.Log(p.MinDistance), hi = Math.Log(p.Far);
+            var trials = new StudyInterval[2 * targets];
+            for (int i = 0; i < trials.Length; i++)
+            {
+                double d = Math.Exp(lo + (i / 2 + 0.5) / targets * (hi - lo));
+                bool paired = i % 2 == 1;
+                trials[i] = new StudyInterval
+                {
+                    Click = true,
+                    DelayDistance = d,
+                    Onset = p.DelaySeconds(d),
+                    DrrDistance = paired ? d : double.NaN,
+                    DrrDb = paired ? p.DrrDb(d) : double.PositiveInfinity,
+                    GainDb = rng.Uniform(-p.RoveDb, p.RoveDb),
+                };
+            }
+            for (int i = trials.Length - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                StudyInterval t = trials[i];
+                trials[i] = trials[j];
+                trials[j] = t;
+            }
+            return trials;
+        }
     }
 
     /// <summary>SplitMix64, so the frozen noise and trial plans are identical in the parity harness and on the Quest.</summary>

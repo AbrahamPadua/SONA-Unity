@@ -8,7 +8,8 @@
 // Timing (wave) uses horizontal distance from the head; direction uses the full 3-D vector;
 // pitch uses gravity-referenced elevation, exactly as in the Python prototype.
 //
-// Modes (menu): Explore (listen) and Challenge (find a hidden box, guess with the laser).
+// Modes (menu): Explore (listen), Challenge (find a hidden box, guess with the laser) and Study (the Proposal 1.2
+// listening test, run by SonaStudyController; no sweeps).
 //
 // View: the world is pitch black. The sweep is drawn as glowing points in Explore (never in Challenge).
 // The HUD shows a status line, the latest message and a hint for the next step.
@@ -37,6 +38,7 @@ namespace Sona
     {
         Explore,
         Challenge,
+        Study,
     }
 
     [DefaultExecutionOrder(100)]
@@ -55,6 +57,7 @@ namespace Sona
         public SonaHud hud;
         public SonaPointer pointer;
         public SonaSettingsPanel settingsPanel;
+        public SonaStudyController study;
 
         [Header("Playback")]
         public SonaRenderMode renderMode = SonaRenderMode.StereoLiveHead;
@@ -177,10 +180,10 @@ namespace Sona
 
         public SonaMode Mode { get { return _mode; } }
 
-        /// <summary>True when sweeps are drawn right now (visuals on, not Challenge, not blackout).</summary>
+        /// <summary>True when sweeps are drawn right now (visuals on, Explore, not blackout).</summary>
         public bool SweepVisualsShown
         {
-            get { return showSweepVisuals && !_blackout && _mode != SonaMode.Challenge; }
+            get { return showSweepVisuals && !_blackout && _mode == SonaMode.Explore; }
         }
 
         /// <summary>Shown on the HUD for a few seconds, then the hint comes back.</summary>
@@ -203,10 +206,11 @@ namespace Sona
             if (room == null) room = GetComponentInChildren<SonaRoomBuilder>();
             if (pointer == null) pointer = GetComponentInChildren<SonaPointer>();
             if (settingsPanel == null) settingsPanel = GetComponentInChildren<SonaSettingsPanel>();
+            if (study == null) study = GetComponentInChildren<SonaStudyController>();
             CreateMissingHelpers();
         }
 
-        /// <summary>Scenes made before the panel existed still get a pointer, a panel and the desktop fallback.</summary>
+        /// <summary>Scenes made before the panel existed still get a pointer, a panel, the study and the desktop fallback.</summary>
         void CreateMissingHelpers()
         {
             Transform rigRoot = head != null ? head.root : null;
@@ -226,6 +230,8 @@ namespace Sona
             }
             if (settingsPanel.controller == null) settingsPanel.controller = this;
             if (settingsPanel.head == null) settingsPanel.head = head;
+            if (study == null) study = gameObject.AddComponent<SonaStudyController>();
+            if (study.controller == null) study.controller = this;
             if (room != null && room.unlitMaterial == null) room.unlitMaterial = settingsPanel.uiMaterial;
             if (rigRoot != null && rigRoot != transform.root && rigRoot.GetComponent<SonaDesktopRig>() == null)
             {
@@ -268,6 +274,11 @@ namespace Sona
         [ContextMenu("Trigger Sweep")]
         public void Trigger()
         {
+            if (_mode == SonaMode.Study)
+            {
+                Message = "No sweeps in Study: choose Explore to sweep";
+                return;
+            }
             StopPlayback();
             StartJob(false);
         }
@@ -348,6 +359,7 @@ namespace Sona
         public void SetMode(SonaMode mode)
         {
             if (mode == _mode) return;
+            if (_mode == SonaMode.Study && study != null) study.Exit();
             _mode = mode;
             if (mode == SonaMode.Challenge)
             {
@@ -358,7 +370,15 @@ namespace Sona
                 if (room != null) room.EndChallenge();
                 HideGuessMarker();
                 _result = null;
-                Message = "Explore: sweep and listen";
+                if (mode == SonaMode.Study)
+                {
+                    StopPlayback();
+                    if (study != null) study.Enter();
+                }
+                else
+                {
+                    Message = "Explore: sweep and listen";
+                }
             }
             ApplyView();
         }
@@ -459,10 +479,10 @@ namespace Sona
             if (room != null)
             {
                 room.SetVisible(!_blackout);
-                room.SetView(darkWorld ? SonaRoomView.Hidden : SonaRoomView.Lit);
+                room.SetView(darkWorld || _mode == SonaMode.Study ? SonaRoomView.Hidden : SonaRoomView.Lit);
             }
             if (visualizer != null) visualizer.SetVisible(SweepVisualsShown);
-            ApplyCameraBackground(darkWorld || _blackout);
+            ApplyCameraBackground(darkWorld || _blackout || _mode == SonaMode.Study);
         }
 
         /// <summary>Black background on every rig camera (no skybox), or put back what they had.</summary>
@@ -518,8 +538,17 @@ namespace Sona
                 {
                     clickUsed = settingsPanel.Tick(pointer, _input.SelectDown, _input.SelectHeld, _input.SelectUp);
                 }
-                if (_input.Sweep) Trigger();
-                HandlePointer(clickUsed);
+                if (_mode == SonaMode.Study)
+                {
+                    // No sweeps in Study; the trigger answers, unless the menu is open (which pauses the block).
+                    bool menuOpen = settingsPanel != null && settingsPanel.Visible;
+                    if (_input.SelectDown && !clickUsed && !menuOpen && study != null) study.Select();
+                }
+                else
+                {
+                    if (_input.Sweep) Trigger();
+                    HandlePointer(clickUsed);
+                }
             }
             PollJob();
             SyncWithRenderers();
@@ -932,6 +961,13 @@ namespace Sona
             if (head != null && room != null && Time.time - _startTime > 3f && xr && head.position.y - room.transform.position.y < 0.5f)
             {
                 Message = "Head is below 0.5 m: set OVRManager Tracking Origin Type = Floor Level";
+            }
+            if (_mode == SonaMode.Study && study != null)
+            {
+                string text = study.HudText(xr);
+                if (!string.IsNullOrEmpty(_message) && Time.unscaledTime - _messageAt < MessageSeconds) text += "\n" + _message;
+                if (hud != null) hud.SetText(text);
+                return;
             }
 
             var sb = new StringBuilder(256);

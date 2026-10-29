@@ -90,8 +90,8 @@ namespace Sona
         const float TextCharW = 0.008f, TextLineH = 0.015f;
         const float CharSize = 0.0021f;
         const int FontSize = 64;
-        const int TabCount = 5;
-        const int HelpTab = 4;
+        const int TabCount = 6;
+        const int HelpTab = 5;
         // Out of view = turned more than this far away (left/right only, so looking down does not count) or this far off.
         const float MaxYawDegrees = 60f, MaxDistance = 2.5f, ReturnDelay = 1f;
 
@@ -395,7 +395,7 @@ namespace Sona
             _handle.name = "Handle (drag)";
             _handle.NormalColor = handleColor;
 
-            string[] tabNames = { "Mode", "Trial", "Sweep", "Room", "Help" };
+            string[] tabNames = { "Mode", "Trial", "Study", "Sweep", "Room", "Help" };
             for (int i = 0; i < TabCount; i++)
             {
                 int tab = i;
@@ -409,6 +409,7 @@ namespace Sona
             PopRow modes = AddRow(mode, null);
             AddButton(modes, () => "Explore", () => ChooseMode(SonaMode.Explore), () => c != null && c.Mode == SonaMode.Explore);
             AddButton(modes, () => "Challenge", () => ChooseMode(SonaMode.Challenge), () => c != null && c.Mode == SonaMode.Challenge);
+            AddButton(modes, () => "Study", () => ChooseMode(SonaMode.Study), () => c != null && c.Mode == SonaMode.Study);
             _popups[0] = mode;
 
             // Trial
@@ -420,6 +421,30 @@ namespace Sona
             PopRow screen = AddRow(trial, () => "Screen");
             AddButton(screen, () => "Blackout", () => Do(() => c.SetBlackout(true)), () => false);
             _popups[1] = trial;
+
+            // Study (Proposal 1.2). The study component is looked up on use: the controller creates it in Awake.
+            Func<SonaStudyController> studyOf = () => c != null ? c.study : null;
+            Popup studyPop = MakePopup("Study", () => studyOf() != null ? studyOf().MenuStatus() : "");
+            PopRow who = AddRow(studyPop, () => "Participant");
+            AddButton(who, () => "-", () => Study(x => x.ChangeParticipant(-1)), () => false);
+            AddButton(who, () => studyOf() != null ? "P" + studyOf().participant.ToString("00") : "-", null, () => false);
+            AddButton(who, () => "+", () => Study(x => x.ChangeParticipant(1)), () => false);
+            PopRow visit = AddRow(studyPop, () => "Session");
+            for (int i = 1; i <= 5; i++)
+            {
+                int n = i;
+                AddButton(visit, () => n.ToString(), () => Study(x => x.SetSession(n)), () => studyOf() != null && studyOf().session == n);
+            }
+            PopRow start = AddRow(studyPop, () => "Start");
+            foreach (StudyBlock b in new[] { StudyBlock.Fusion, StudyBlock.SingleCues, StudyBlock.CueAxes, StudyBlock.Training })
+            {
+                StudyBlock block = b;
+                AddButton(start, () => SonaStudyController.BlockLabel(block), () => StartStudyBlock(block),
+                          () => studyOf() != null && studyOf().Running && studyOf().Block == block);
+            }
+            PopRow stop = AddRow(studyPop, () => "Block");
+            AddButton(stop, () => "Stop", () => Study(x => x.StopBlock()), () => false);
+            _popups[2] = studyPop;
 
             // Sweep
             Popup sweep = MakePopup("Sweep", null);
@@ -435,7 +460,7 @@ namespace Sona
             AddButton(research, () => c != null && c.renderMode == SonaRenderMode.Hrtf ? "HRTF" : "Stereo", () => Do(c.CycleRenderMode), () => false);
             AddButton(research, () => c != null && c.elevationToPitch ? "Pitch: height" : "Pitch: fixed", () => Do(c.TogglePitch), () => c != null && c.elevationToPitch);
             AddButton(research, () => "Diagnostics", () => Do(() => c.showDiagnostics = !c.showDiagnostics), () => c != null && c.showDiagnostics);
-            _popups[2] = sweep;
+            _popups[3] = sweep;
 
             // Room
             Popup roomPop = MakePopup("Room", null);
@@ -455,7 +480,7 @@ namespace Sona
             AddButton(light, () => "Lit", () => Do(() => c.SetDarkWorld(false)), () => c != null && !c.darkWorld);
             PopRow objects = AddRow(roomPop, () => "Objects");
             AddButton(objects, () => "Reset", () => Do(c.ResetObjects), () => false);
-            _popups[3] = roomPop;
+            _popups[4] = roomPop;
 
             // Help
             _popups[HelpTab] = MakePopup("Help", HelpText);
@@ -479,7 +504,9 @@ namespace Sona
                 "MODES\n" +
                 "Explore:  sweep and listen. Gold dots show what you heard.\n" +
                 "Challenge:  a hidden box. Find it by ear, then guess.\n" +
-                "    Starting a box closes this menu.";
+                "    Starting a box closes this menu.\n" +
+                "Study:  the Proposal 1.2 listening test. Set the participant and\n" +
+                "    session in the Study tab, then start a block. The menu pauses it.";
             if (!xr) text += "\n\nDesktop: hold the right mouse button to look, W A S D to walk.";
             return text;
         }
@@ -506,11 +533,25 @@ namespace Sona
             if (action != null) action();
         }
 
+        void Study(Action<SonaStudyController> action)
+        {
+            if (controller != null && controller.study != null) action(controller.study);
+        }
+
+        /// <summary>Start a study block (entering Study if needed) and close the menu, which would otherwise pause it.</summary>
+        void StartStudyBlock(StudyBlock block)
+        {
+            if (controller == null || controller.study == null) return;
+            controller.SetMode(SonaMode.Study);
+            controller.study.StartBlock(block);
+            Close();
+        }
+
         static string VisualsLabel(SonaSweepController c)
         {
             if (c == null) return "-";
             if (!c.showSweepVisuals) return "Visuals: off";
-            return c.Mode == SonaMode.Challenge ? "Visuals: hidden" : "Visuals: on";
+            return c.Mode != SonaMode.Explore ? "Visuals: hidden" : "Visuals: on";
         }
 
         Transform MakeBacking(string name, Transform parent)

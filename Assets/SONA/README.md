@@ -74,7 +74,7 @@ brightness).
 ## The menu
 
 ```
-[Move] [Mode] [Trial] [Sweep] [Room] [Help] [Close]
+[Move] [Mode] [Trial] [Study] [Sweep] [Room] [Help] [Close]
 ```
 
 The menu opens below eye level in front of you, with Help showing on first launch. For the first
@@ -89,8 +89,9 @@ Each tab opens a popup above the bar; press the tab again to close it.
 
 | Tab | Contents |
 |---|---|
-| Mode | Explore, Challenge |
+| Mode | Explore, Challenge, Study |
 | Trial | Next box, Reveal box, Blackout. Next box starts Challenge if you are in Explore |
+| Study | Participant number, session (1 to 5), start a block (Fusion, Single cues, Cue axes, Training), Stop. The text below shows where each staircase stands |
 | Sweep | Sweep now, Repeat, Slower/Faster (0.5x to 2x). Research row: renderer (Stereo or HRTF), pitch (follows height or fixed), Diagnostics |
 | Room | Walls: no walls (default), open (3), closed (4). Size: 4 x 4, 5 x 6, 8 x 10 m. Light: dark (default), lit. Objects: Reset |
 | Help | The controls and what each mode is for |
@@ -116,6 +117,40 @@ an update built on another computer. Copy the log with:
 ```
 adb pull /sdcard/Android/data/com.DefaultCompany.SONAquest/files/sona_challenge_log_v2.csv
 ```
+
+## Study mode (Proposal 1.2)
+
+Study runs the listening test of Proposal 1.2: does the learned delay cue fuse with the direct-to-reverberant
+ratio (DRR)? The participant sits facing forward with wired headphones in the headset. There are no sweeps
+in this mode. Each trial plays one box sound per interval, built so that only its onset delay and its DRR
+carry distance (`Core/SonaStudy.cs`). The calculations and their sources are in
+`AudioSweep/SONA Proposal 1.2 implementation plan.md`.
+
+1. Open the menu, choose the Study tab, and set the participant number and the session.
+2. Press a block under Start. The menu closes and the block begins. The first time you enter Study the app
+   prepares the sounds, which takes a few seconds on the headset.
+3. Hand the controller over. The HUD says what to do; it changes only between trials.
+
+| Block | What the participant does |
+|---|---|
+| Fusion | Three sounds, one different. Point at the sphere for the odd one and pull the trigger. No feedback. Staircases for congruent and opposite changes, both directions |
+| Single cues | The same task with delay alone (no reverb) or DRR alone (no click, random onset) |
+| Cue axes | The same task with both cues present, but only one of them changing |
+| Training | One sound. Point at the floor line where the box starts. The box then appears with the error in percent. Half the trials carry delay alone, half delay with DRR |
+
+Each oddity block runs four interleaved staircases of 65 trials (`trialsPerStaircase` on the SONA Study
+component) with the rule of Negen et al. (2023): the difference shrinks by 0.9 after a right answer and
+grows by 0.9^-3 after a wrong one, which settles at 75% correct. Each staircase stops growing at the largest
+difference the sounds allow. Training has 120 trials (`trainingTrials`).
+
+Pressing Menu pauses the block, and so does taking the headset off. The trial in progress is thrown away
+and a new one starts when the menu closes. Each answered trial is appended to `sona_study_log.csv`, next to
+the challenge log: participant, session, block, condition, staircase difference, the odd interval, the
+answer, reaction time, and for every interval its delay distance, DRR, onset, gain, level, peak and onset
+sample. It also records the sample rate, the headset's media volume step and where the sound went (`wired`,
+`bluetooth` or `speaker`), so a bumped volume button or a session without headphones shows up in the data.
+If a newer build changes the columns, the old file is kept as `sona_study_log_old_<date>.csv` and a new one
+starts. Copy the logs off with `adb pull` after every visit, like the challenge log.
 
 All encoder, grain and clustering parameters are on the **SONA Sweep Controller** component,
 with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s grains, and so on).
@@ -147,6 +182,7 @@ with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s gr
 | audio_player.py | `Runtime/SonaStereoRenderer.cs` (real-time mixer on Unity's audio thread) |
 | render.py | `GranularRenderer.RenderOffline` in `Core/SonaGranular.cs` |
 | (new) HRTF rendering | `Core/SonaClusterer.cs`, `Runtime/SonaHrtfRenderer.cs` |
+| (new) Proposal 1.2 study | `Core/SonaStudy.cs`, `Core/SonaStaircase.cs`, `Runtime/SonaStudyController.cs` |
 
 Everything in `Scripts/Core` is plain C# with no Unity dependency, like the Python encoder.
 
@@ -162,7 +198,9 @@ rotated objects, at 0.5x, 1x and 1.5x speed):
 - the room builder's Unity geometry reproduces scene.py's surfaces to 1e-15 m;
 - turning the head right moves a straight-ahead source to the left ear in live mode;
 - HRTF voice allocation fits every test room in 56 voices with nothing dropped, including
-  back-to-back repeats.
+  back-to-back repeats;
+- the study sounds play the requested DRR, level and onset, measured from the output, and an audit of
+  9,600 trials finds no level, peak, loudness or onset feature that picks out the odd interval.
 
 The harness is in `Tools/SonaParity` (outside Assets, so Unity ignores it).
 

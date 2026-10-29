@@ -437,6 +437,34 @@ static partial class Program
             }
             Check(isolatedOk, "study: DRR-only trials drop the click and jitter the onset; delay-only trials are dry");
 
+            StudyInterval[] training = StudyTrials.TrainingSchedule(sp, 60, new StudyRandom(5));
+            var alone = new List<double>();
+            var paired = new List<double>();
+            bool trainingOk = training.Length == 120;
+            int ascending = 0;
+            for (int i = 0; i < training.Length; i++)
+            {
+                StudyInterval iv = training[i];
+                trainingOk &= iv.Click && iv.DelayDistance >= sp.MinDistance && iv.DelayDistance <= sp.Far && Math.Abs(iv.GainDb) <= sp.RoveDb
+                              && Math.Abs(iv.Onset - sp.DelaySeconds(iv.DelayDistance)) < 1e-12;
+                if (double.IsPositiveInfinity(iv.DrrDb)) alone.Add(iv.DelayDistance);
+                else
+                {
+                    paired.Add(iv.DelayDistance);
+                    trainingOk &= iv.DrrDistance == iv.DelayDistance && Math.Abs(iv.DrrDb - sp.DrrDb(iv.DelayDistance)) < 1e-12;
+                }
+                if (i > 0 && iv.DelayDistance >= training[i - 1].DelayDistance) ascending++;
+            }
+            alone.Sort();
+            paired.Sort();
+            double logStep = Math.Log(sp.Far / sp.MinDistance) / 60;
+            bool even = alone.Count == 60 && paired.Count == 60;
+            for (int i = 0; even && i < 60; i++)
+                even = alone[i] == paired[i] && Math.Abs(Math.Log(alone[i] / sp.MinDistance) - (i + 0.5) * logStep) < 1e-9;
+            Check(trainingOk && even && ascending > 40 && ascending < 80,
+                  string.Format("study: training uses 60 targets from {0} to {1} m, evenly spaced in log distance, each alone and with DRR, shuffled",
+                                sp.MinDistance, sp.Far));
+
             // Staircases: Negen's rule against Negen's own psychometric function (eq. 1, s = 0.15).
             Func<int, double, double> longRun = (upSteps, cap) =>
             {
