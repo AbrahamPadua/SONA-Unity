@@ -184,8 +184,8 @@ static partial class Program
             double k = l[0] - dryLevels[0], pk = l[1] - dryLevels[1];
             spread[0] = Math.Min(spread[0], k); spread[1] = Math.Max(spread[1], k);
             spread[2] = Math.Min(spread[2], pk); spread[3] = Math.Max(spread[3], pk);
-            kLine.Append(string.Format(inv, "  {0:+0;-0}: {1:+0.00;-0.00}", drr, k));
-            pLine.Append(string.Format(inv, "  {0:+0;-0}: {1:+0.00;-0.00}", drr, pk));
+            kLine.Append(string.Format(inv, "  {0:+0;-0}: {1:+0.00;-0.00;0.00}", drr, k));
+            pLine.Append(string.Format(inv, "  {0:+0;-0}: {1:+0.00;-0.00;0.00}", drr, pk));
         }
         Console.WriteLine("        At equal RMS, by DRR (dB):");
         Console.WriteLine(kLine.ToString());
