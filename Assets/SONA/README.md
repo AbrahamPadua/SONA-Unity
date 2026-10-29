@@ -152,6 +152,10 @@ sample. It also records the sample rate, the headset's media volume step and whe
 If a newer build changes the columns, the old file is kept as `sona_study_log_old_<date>.csv` and a new one
 starts. Copy the logs off with `adb pull` after every visit, like the challenge log.
 
+The project's audio runs at 48 kHz (Project Settings > Audio > System Sample Rate). Left at the system
+default, the Quest plays at 24 kHz, which cuts everything above 12 kHz. Listeners hear DRR mainly through the
+spectrum (Larsen et al. 2008), so the study needs the full band.
+
 All encoder, grain and clustering parameters are on the **SONA Sweep Controller** component,
 with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s grains, and so on).
 

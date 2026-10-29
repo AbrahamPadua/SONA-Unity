@@ -14,7 +14,7 @@ namespace Sona.Core
     [Serializable]
     public sealed class StudyParams
     {
-        public int SampleRate = 44100;
+        public int SampleRate = 48000;          // the headset's rate (ProjectSettings > Audio); the app passes the real one
         public double SweepDuration = 1.2;      // s: the delay at Far
         public double Far = 5.0;                // m
         public double FoveationExponent = 0.5;  // delay ~ distance^p; the pilot tunes p to match the two cues
