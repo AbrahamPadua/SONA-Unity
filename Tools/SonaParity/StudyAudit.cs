@@ -136,6 +136,8 @@ static partial class Program
                 // The onset is the delay cue itself whenever there is a click, so it only counts as a nuisance without one.
                 if (k == 3 && c.Click) { row.Append("      n/a"); continue; }
                 double acc = hits[k] / (double)n;
+                // At equal RMS the peak depends on how much of the box is reverb, so where the DRR changes it is part of the DRR cue.
+                if (k == 1 && c.KDrr != 0.0) { row.Append(string.Format(inv, "  {0,6:F3}*", acc)); continue; }
                 row.Append(string.Format(inv, "  {0,7:F3}", acc));
                 leakOk &= acc <= limit;
                 if (worstLeakName == "" || acc - limit > worstLeak)
@@ -164,6 +166,7 @@ static partial class Program
         Console.WriteLine("        odd-one-out accuracy of a nuisance-only observer (chance = 0.333)");
         Console.WriteLine("        condition   trials  max delta +/-     RMS     peak  K-level    onset");
         foreach (string line in table) Console.WriteLine(line);
+        Console.WriteLine("        * part of the DRR cue, not a nuisance: at equal RMS the peak depends on how much of the box is reverb");
         Check(leakOk, "audit: no nuisance feature picks the odd interval above chance (closest: " + worstLeakName + ")");
 
         // What DRR alone does to loudness (BS.1770 K-weighted level) and to the box's peak, at equal RMS and no gain.

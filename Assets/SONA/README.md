@@ -204,7 +204,10 @@ rotated objects, at 0.5x, 1x and 1.5x speed):
 - HRTF voice allocation fits every test room in 56 voices with nothing dropped, including
   back-to-back repeats;
 - the study sounds play the requested DRR, level and onset, measured from the output, and an audit of
-  9,600 trials finds no level, peak, loudness or onset feature that picks out the odd interval.
+  9,600 trials finds no level, loudness or onset feature that picks out the odd interval, and no peak
+  feature when only the delay changes. Where the DRR changes, the box's peak moves with it (at the same
+  level, the peak depends on how much of the box is reverb), so the audit counts the peak as part of the
+  DRR cue.
 
 The harness is in `Tools/SonaParity` (outside Assets, so Unity ignores it).
 
