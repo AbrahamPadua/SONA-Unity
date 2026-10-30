@@ -466,6 +466,44 @@ static partial class Program
                   string.Format("study: training uses 60 targets from {0} to {1} m, evenly spaced in log distance, each alone and with DRR, shuffled",
                                 sp.MinDistance, sp.Far));
 
+            // Ground sound: SONA's floor sweep from the click on, identical in every interval but for the roving gain.
+            var gsp = new StudyParams { Ground = true };
+            var gst = new StudyStimulus(gsp);
+            var plain = new StudyInterval { Click = true, Onset = gsp.DelaySeconds(2.0), DrrDb = 5.0, GainDb = 2.5 };
+            var grounded = plain;
+            grounded.Ground = true;
+            var bufPlain = new float[gst.IntervalFrames * 2];
+            var bufGround = new float[gst.IntervalFrames * 2];
+            gst.Render(ref plain, bufPlain, 0);
+            gst.Render(ref grounded, bufGround, 0);
+            double gain25 = Math.Pow(10.0, 2.5 / 20.0), worstFloor = 0.0, floorEnergy = 0.0;
+            long floorStart = gst.LeadFrames * 2L;
+            for (long i = 0; i < bufPlain.Length; i++)
+            {
+                double floorWant = i >= floorStart && i - floorStart < gst.Floor.Length ? gain25 * gst.FloorScale * gst.Floor[i - floorStart] : 0.0;
+                worstFloor = Math.Max(worstFloor, Math.Abs(bufGround[i] - bufPlain[i] - floorWant));
+            }
+            foreach (double v in gst.Floor) floorEnergy += v * v * gst.FloorScale * gst.FloorScale;
+            double floorDb = 10.0 * Math.Log10(floorEnergy / (gst.Floor.Length / 2) / 2.0) - 20.0 * Math.Log10(gsp.TargetRms);
+            Check(worstFloor < 1e-6 && grounded.BoxRms == plain.BoxRms,
+                  string.Format("study: the ground sound starts at the click, scales with the roving and leaves the box's level alone " +
+                                "(worst {0:E1}; {1:0.00} s long, {2:+0.0;-0.0} dB re the box)", worstFloor, gst.Floor.Length / 2.0 / gsp.SampleRate, floorDb));
+            double groundPeak = 0.0;
+            foreach (double drr in new[] { -10.0, 0.0, 5.0, 10.0, 20.0, double.PositiveInfinity })
+            {
+                var loudest = new StudyInterval { Click = true, Onset = gsp.DelaySeconds(2.0), DrrDb = drr, GainDb = gsp.RoveDb, Ground = true };
+                gst.Render(ref loudest, new float[gst.IntervalFrames * 2], 0);
+                groundPeak = Math.Max(groundPeak, loudest.Peak);
+            }
+            Check(groundPeak < 1.0, string.Format("study: no clipping with the ground sound at +{0} dB roving (peak {1:F3})", gsp.RoveDb, groundPeak));
+            int groundOdd;
+            bool groundPlans = true;
+            foreach (StudyInterval gi in StudyTrials.Plan(gsp, congruent, 0.3, 1, new StudyRandom(4), out groundOdd)) groundPlans &= gi.Ground;
+            foreach (StudyInterval gi in StudyTrials.Plan(gsp, drrOnly, 0.3, 1, new StudyRandom(4), out groundOdd)) groundPlans &= !gi.Ground;
+            foreach (StudyInterval gi in StudyTrials.TrainingSchedule(gsp, 5, new StudyRandom(4))) groundPlans &= gi.Ground;
+            foreach (StudyInterval gi in StudyTrials.Plan(sp, congruent, 0.3, 1, new StudyRandom(4), out groundOdd)) groundPlans &= !gi.Ground;
+            Check(groundPlans, "study: with Ground on, every interval with a click gets the ground sound and DRR-only intervals never do; off by default");
+
             // Staircases: Negen's rule against Negen's own psychometric function (eq. 1, s = 0.15).
             Func<int, double, double> longRun = (upSteps, cap) =>
             {

@@ -42,6 +42,8 @@ namespace Sona
         public string logFileName = "sona_study_log.csv";
         public int participant = 1;
         public int session = 1;
+        [Tooltip("Also play SONA's ground sound (the floor's low sweep) in every interval with a click. Applies from the next block.")]
+        public bool groundSound;
 
         enum Phase { Idle, Waiting, Playing, Answering, Feedback, Paused, Done }
 
@@ -159,10 +161,12 @@ namespace Sona
 
         public void ChangeParticipant(int step) { participant = Mathf.Clamp(participant + step, 1, 99); }
         public void SetSession(int s) { session = Mathf.Clamp(s, 1, 9); }
+        public void ToggleGround() { groundSound = !groundSound; }
 
         void BeginBlock()
         {
             _waitingForSounds = false;
+            _params.Ground = groundSound;   // fixed for the whole block, so a staircase never mixes the two
             _tracks.Clear();
             if (_block == StudyBlock.Training)
             {
@@ -583,7 +587,7 @@ namespace Sona
         static string MakeHeader()
         {
             var sb = new StringBuilder("launch,time,participant,session,block,block_trial,condition,delta,odd,response,correct,rt_s,next_delta,cap_hits," +
-                                       "target_m,response_m,error_pct,sample_rate,media_volume,output,seed");
+                                       "target_m,response_m,error_pct,sample_rate,media_volume,output,ground,seed");
             for (int k = 1; k <= 3; k++)
                 sb.AppendFormat(",delay_m_{0},drr_m_{0},onset_s_{0},drr_db_{0},signal_drr_db_{0},gain_db_{0},box_rms_{0},peak_{0},box_sample_{0}", k);
             return sb.ToString();
@@ -615,7 +619,7 @@ namespace Sona
                     training ? "" : Num(_track.Stairs.Value, "0.00000"), training ? "" : _track.Stairs.CapHits.ToString(inv),
                     training ? Num(first.DelayDistance, "0.000") : "", Num(responseMetres, "0.000"),
                     training ? Num(100.0 * (responseMetres - first.DelayDistance) / first.DelayDistance, "0.0") : "",
-                    _params.SampleRate.ToString(inv), _volume.ToString(inv), _output, _seed.ToString(inv),
+                    _params.SampleRate.ToString(inv), _volume.ToString(inv), _output, first.Ground ? "1" : "0", _seed.ToString(inv),
                 };
                 for (int k = 0; k < 3; k++)
                 {

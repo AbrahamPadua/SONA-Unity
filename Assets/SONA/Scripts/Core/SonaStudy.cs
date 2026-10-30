@@ -6,7 +6,8 @@
 // Wet is Dry convolved with frozen, exponentially decaying noise (unit energy, independent per ear), so the
 // kernel's DRR is exactly the requested one. s scales the box to TargetRms and then applies the interval's
 // roving gain, which the click shares. The sweep matches Explore's default room: a 5 x 6 m floor in front of the
-// listener, with the wave reaching its far corner (6.5 m) at the end of the sweep.
+// listener, with the wave reaching its far corner (6.5 m) at the end of the sweep. With Ground on, intervals with a
+// click also play that floor's low sweep from the click on, at its level relative to the dry box in the app's own mix.
 // The plan with sources: AudioSweep/SONA Proposal 1.2 implementation plan.md.
 using System;
 using System.Collections.Generic;
@@ -36,13 +37,15 @@ namespace Sona.Core
         public double ClickAmplitude = 0.5;
         public double EarHeight = 1.2;          // m, seated
         public ulong NoiseSeed = 1;
+        public bool Ground;                     // also play SONA's ground sound in intervals with a click
 
         /// <summary>Where the wave ends: the floor's far corner (6.5 m), as Explore sizes its sweep to the farthest point.</summary>
         public double Far { get { return SonaMath.Hypot(FloorWidth / 2.0, FloorDepth); } }
 
         public EncodingParams Encoding()
         {
-            return new EncodingParams { SweepDuration = SweepDuration, Far = Far, FoveationExponent = FoveationExponent };
+            // Near is Explore's (SonaSweepController.near), so the ground and the box keep Explore's loudness.
+            return new EncodingParams { SweepDuration = SweepDuration, Far = Far, FoveationExponent = FoveationExponent, Near = 0.4 };
         }
 
         /// <summary>SONA's delay: when the wavefront reaches a box whose near face is this far away.</summary>
@@ -61,6 +64,7 @@ namespace Sona.Core
         public double DrrDb;          // +infinity = dry (no room)
         public bool Click;
         public double GainDb;
+        public bool Ground;           // the ground sound from the click on; only with a click, or it would mark the onset
 
         public long ClickSample;      // frames from the interval start; -1 without a click
         public long BoxSample;
@@ -96,8 +100,10 @@ namespace Sona.Core
         public readonly double[] Wet;        // Dry convolved with the tail, gap included: BoxFrames frames
         public readonly double[][] Tail;     // per ear: unit-energy decaying noise
         public readonly double[] Click;      // mono
+        public readonly double[] Floor;      // interleaved stereo ground sound, from the start of the sweep (the click)
         public readonly int DryFrames, BoxFrames, LeadFrames, IntervalFrames;
         public readonly double DryEnergy, WetEnergy, CrossEnergy;
+        public readonly double FloorScale;   // brings the ground sound to its app level relative to the dry box at TargetRms
 
         public StudyStimulus(StudyParams p)
         {
@@ -105,7 +111,9 @@ namespace Sona.Core
                 throw new ArgumentException("the 1 m box must fit inside the sweep at the farthest standard");
             Params = p;
             int sr = p.SampleRate;
-            Dry = RenderBox(p);
+            var bank = new GrainBank(new GranularParams { SampleRate = sr });
+            Dry = RenderBox(p, bank);
+            Floor = RenderFloor(p, bank);
             DryFrames = Dry.Length / 2;
             int gap = (int)Math.Round(p.TailGap * sr);
             int tail = (int)Math.Ceiling(p.T60 * sr);
@@ -135,6 +143,8 @@ namespace Sona.Core
             Click = MakeClick(sr);
             LeadFrames = (int)Math.Round(p.Lead * sr);
             IntervalFrames = LeadFrames + (int)Math.Ceiling(p.SweepDuration * sr) + BoxFrames + (int)Math.Round(p.Gap * sr);
+            FloorScale = p.TargetRms * Math.Sqrt(2.0 * BoxFrames / DryEnergy);
+            if (LeadFrames + Floor.Length / 2 > IntervalFrames) throw new ArgumentException("the ground sound must fit the interval");
         }
 
         /// <summary>Three (or any number of) intervals back to back, each IntervalFrames long, as interleaved stereo.</summary>
@@ -177,31 +187,57 @@ namespace Sona.Core
             iv.SignalDrrDb = dry ? double.PositiveInfinity : 10.0 * Math.Log10(ad * ad * DryEnergy / (ar * ar * WetEnergy));
             double sum = 0.0, peak = 0.0;
             for (int i = 0; i < Wet.Length; i++) sum += (double)output[b + i] * output[b + i];
+            iv.BoxRms = Math.Sqrt(sum / Wet.Length);   // the box alone, before the ground sound joins it
+
+            if (iv.Ground)
+            {
+                long f = o + LeadFrames * 2L;
+                for (int i = 0; i < Floor.Length; i++) output[f + i] += (float)(g * FloorScale * Floor[i]);
+            }
             for (long i = o; i < o + IntervalFrames * 2L; i++) peak = Math.Max(peak, Math.Abs(output[i]));
-            iv.BoxRms = Math.Sqrt(sum / Wet.Length);
             iv.Peak = peak;
         }
 
+        static ListenerPose3D Listener(StudyParams p) { return new ListenerPose3D(new Vec3d(0.0, p.EarHeight, 0.0), 0.0); }
+
+        // SONA's grains and panning before its mix gain and peak limit, so the box and the ground keep their relative level.
+        static double[] Mix(List<ScheduledReturn> plan, GrainBank bank, double sweepDuration)
+        {
+            int frames = bank.Params.BufferFrames(sweepDuration, bank.Length);
+            var buf = new double[frames * 2];
+            GranularRenderer.MixInto(plan, bank, new PitchMapper(), buf, frames);
+            return buf;
+        }
+
         // A 1 m box on the floor, straight ahead, near face at the reference distance, through SONA's own pipeline.
-        static double[] RenderBox(StudyParams p)
+        static double[] RenderBox(StudyParams p, GrainBank bank)
         {
             var quads = new List<SurfaceQuad>();
             double near = p.ReferenceDistance;
             SonaPrimitives.AppendBoxQuads(quads, q => new Vec3d(q.X, q.Y + 0.5, q.Z + near + 0.5),
                                           new Vec3d(1, 0, 0), new Vec3d(0, 1, 0), new Vec3d(0, 0, 1), "box", null);
-            var listener = new ListenerPose3D(new Vec3d(0.0, p.EarHeight, 0.0), 0.0);
             EncodingParams ep = p.Encoding();
-            List<ScheduledReturn> plan = SonaEncoder.Encode(SonaFrontend.SurfaceEmission(quads, listener, 5.0, p.Far), ep);
+            List<ScheduledReturn> plan = SonaEncoder.Encode(SonaFrontend.SurfaceEmission(quads, Listener(p), 5.0, p.Far), ep);
             if (plan.Count == 0) throw new ArgumentException("the box produced no returns");
-            double gain, rawPeak;
-            float[] full = GranularRenderer.RenderOffline(plan, ep.SweepDuration, new GrainBank(new GranularParams { SampleRate = p.SampleRate }),
-                                                          new PitchMapper(), out gain, out rawPeak);
+            double[] full = Mix(plan, bank, ep.SweepDuration);
             long first = (long)(plan[0].Onset * p.SampleRate);
             long last = full.Length / 2 - 1;
-            while (last > first && full[last * 2] == 0f && full[last * 2 + 1] == 0f) last--;
+            while (last > first && full[last * 2] == 0.0 && full[last * 2 + 1] == 0.0) last--;
             var box = new double[(last - first + 1) * 2];
-            for (long i = 0; i < box.Length; i++) box[i] = full[first * 2 + i];
+            Array.Copy(full, first * 2, box, 0, box.Length);
             return box;
+        }
+
+        // SONA's ground sound: the floor of Explore's default room in front of the listener, sounding the low floor tone as
+        // the wave crosses it. No occlusion by the box, like the rest of SONA (X-ray).
+        static double[] RenderFloor(StudyParams p, GrainBank bank)
+        {
+            double x = p.FloorWidth / 2.0, z = p.FloorDepth;
+            var floor = new SurfaceQuad(new Vec3d(-x, 0.0, 0.0), new Vec3d(x, 0.0, 0.0), new Vec3d(x, 0.0, z), new Vec3d(-x, 0.0, z),
+                                        new Vec3d(0, 1, 0), "floor", "floor", SonaMaterials.Floor);
+            EncodingParams ep = p.Encoding();
+            List<ScheduledReturn> plan = SonaEncoder.Encode(SonaFrontend.SurfaceEmission(new[] { floor }, Listener(p), 5.0, p.Far), ep);
+            return Mix(plan, bank, ep.SweepDuration);
         }
 
         static double[] DecayingNoise(int frames, double t60, int sr, StudyRandom rng)
@@ -283,6 +319,7 @@ namespace Sona.Core
                     DrrDistance = c.Room ? dDrr : double.NaN,
                     DrrDb = c.Room ? p.DrrDb(dDrr) : double.PositiveInfinity,
                     GainDb = rng.Uniform(-p.RoveDb, p.RoveDb),
+                    Ground = p.Ground && c.Click,
                 };
             }
             return intervals;
@@ -309,6 +346,7 @@ namespace Sona.Core
                     DrrDistance = paired ? d : double.NaN,
                     DrrDb = paired ? p.DrrDb(d) : double.PositiveInfinity,
                     GainDb = rng.Uniform(-p.RoveDb, p.RoveDb),
+                    Ground = p.Ground,
                 };
             }
             for (int i = trials.Length - 1; i > 0; i--)

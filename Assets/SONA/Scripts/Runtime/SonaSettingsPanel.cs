@@ -444,6 +444,8 @@ namespace Sona
             }
             PopRow stop = AddRow(studyPop, () => "Block");
             AddButton(stop, () => "Stop", () => Study(x => x.StopBlock()), () => false);
+            AddButton(stop, () => studyOf() != null && studyOf().groundSound ? "Ground: on" : "Ground: off", () => Study(x => x.ToggleGround()),
+                      () => studyOf() != null && studyOf().groundSound);
             _popups[2] = studyPop;
 
             // Sweep

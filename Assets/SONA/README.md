@@ -91,7 +91,7 @@ Each tab opens a popup above the bar; press the tab again to close it.
 |---|---|
 | Mode | Explore, Challenge, Study |
 | Trial | Next box, Reveal box, Blackout. Next box starts Challenge if you are in Explore |
-| Study | Participant number, session (1 to 5), start a block (Fusion, Single cues, Cue axes, Training), Stop. The text below shows where each staircase stands |
+| Study | Participant number, session (1 to 5), start a block (Fusion, Single cues, Cue axes, Training), Stop, Ground on/off. The text below shows where each staircase stands |
 | Sweep | Sweep now, Repeat, Slower/Faster (0.5x to 2x). Research row: renderer (Stereo or HRTF), pitch (follows height or fixed), Diagnostics |
 | Room | Walls: no walls (default), open (3), closed (4). Size: 4 x 4, 5 x 6, 8 x 10 m. Light: dark (default), lit. Objects: Reset |
 | Help | The controls and what each mode is for |
@@ -145,13 +145,20 @@ difference the sounds allow. Training has 120 trials (`trainingTrials`).
 
 The study's sweep matches Explore's default room: a 5 x 6 m floor in front of you, with the wave reaching
 its far corner (6.5 m) at the end of the 1.2 s sweep, so a box at 2 m sounds 666 ms after the click.
+**Ground** (Study tab, off by default) adds that floor's low sweep, the ground sound from Explore, to every
+interval that has a click. It starts with the click, sounds the same in every interval apart from the level
+roving, and keeps its level relative to the box from the app's own mix. DRR-alone intervals never get it,
+because its start would mark the onset they hide. Like the rest of SONA, the box does not block the floor
+behind it. The setting applies from the next block, so one staircase never mixes trials with and without it.
+Unlike Explore, the study's sounds are pre-rendered, so they do not follow your head.
 
 Pressing Menu pauses the block, and so does taking the headset off. The trial in progress is thrown away
 and a new one starts when the menu closes. Each answered trial is appended to `sona_study_log.csv`, next to
 the challenge log: participant, session, block, condition, staircase difference, the odd interval, the
 answer, reaction time, and for every interval its delay distance, DRR, onset, gain, level, peak and onset
-sample. It also records the sample rate, the headset's media volume step and where the sound went (`wired`,
-`bluetooth` or `speaker`), so a bumped volume button or a session without headphones shows up in the data.
+sample. It also records the sample rate, the headset's media volume step, where the sound went (`wired`,
+`bluetooth` or `speaker`) and whether the ground sound played, so a bumped volume button or a session without
+headphones shows up in the data.
 If a newer build changes the columns, the old file is kept as `sona_study_log_old_<date>.csv` and a new one
 starts. Copy the logs off with `adb pull` after every visit, like the challenge log.
 
