@@ -27,10 +27,10 @@ START, DOWN, UP_STEPS = 0.2, 0.9, 3   # Negen et al. (2023): x0.9 after a right 
 # Condition: (k_d, k_r, delay cue present, DRR cue present, cap for +, cap for -). The caps are
 # StudyTrials.MaxDelta for the app's default StudyParams, as printed by the parity audit.
 CONDITIONS = {
-    "delay-only": (1, 0, True, False, 0.741, 1.211),
+    "delay-only": (1, 0, True, False, 1.004, 1.211),
     "drr-only": (0, 1, False, True, 1.552, 1.552),
-    "congruent": (1, 1, True, True, 0.741, 1.211),
-    "opposite": (1, -1, True, True, 0.741, 1.211),
+    "congruent": (1, 1, True, True, 1.004, 1.211),
+    "opposite": (1, -1, True, True, 1.004, 1.211),
 }
 BLOCKS = ["delay-only", "drr-only", "congruent", "opposite"]   # Single cues + Fusion, each with both signs
 MODELS = ["selection", "joint", "fusion"]
@@ -172,7 +172,7 @@ def report():
             ratio = t[3] / t[2]
             cells = " ".join(f"{x:11.3f}" if x < math.inf else f"{'never':>11}" for x in t)
             print(f"  {name:10} {model:10} {cells}   {ratio:8.2f}" if ratio < math.inf else f"  {name:10} {model:10} {cells}   {'inf':>8}")
-        print(f"  {'':10} (sigma_d = {sd}, sigma_r = {sr}; caps: delay +0.741/-1.211, DRR +-1.552, both +0.741/-1.211)")
+        print(f"  {'':10} (sigma_d = {sd}, sigma_r = {sr}; caps: delay +1.004/-1.211, DRR +-1.552, both +1.004/-1.211)")
 
     print("\nRecovery: 100 simulated listeners per cell, Single cues + Fusion, all three observers fitted to every trial.")
     print("  'picked' = how often the true observer has the highest likelihood; sigma error = median |ln(fit/true)| as %.")

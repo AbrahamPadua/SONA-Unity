@@ -143,6 +143,9 @@ component) with the rule of Negen et al. (2023): the difference shrinks by 0.9 a
 grows by 0.9^-3 after a wrong one, which settles at 75% correct. Each staircase stops growing at the largest
 difference the sounds allow. Training has 120 trials (`trainingTrials`).
 
+The study's sweep matches Explore's default room: a 5 x 6 m floor in front of you, with the wave reaching
+its far corner (6.5 m) at the end of the 1.2 s sweep, so a box at 2 m sounds 666 ms after the click.
+
 Pressing Menu pauses the block, and so does taking the headset off. The trial in progress is thrown away
 and a new one starts when the menu closes. Each answered trial is appended to `sona_study_log.csv`, next to
 the challenge log: participant, session, block, condition, staircase difference, the odd interval, the
@@ -206,8 +209,8 @@ rotated objects, at 0.5x, 1x and 1.5x speed):
 - the study sounds play the requested DRR, level and onset, measured from the output, and an audit of
   9,600 trials finds no level, loudness or onset feature that picks out the odd interval, and no peak
   feature when only the delay changes. Where the DRR changes, the box's peak moves with it (at the same
-  level, the peak depends on how much of the box is reverb), so the audit counts the peak as part of the
-  DRR cue.
+  level, a box that is mostly reverb peaks up to 1.5 dB higher), so the audit counts the peak as part of
+  the DRR cue.
 
 The harness is in `Tools/SonaParity` (outside Assets, so Unity ignores it).
 

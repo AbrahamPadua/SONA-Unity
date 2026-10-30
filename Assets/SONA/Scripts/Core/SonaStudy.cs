@@ -5,7 +5,9 @@
 //     s * (a_d * Dry + a_r * Wet),   a_d / a_r = 10^(DRR/20)
 // Wet is Dry convolved with frozen, exponentially decaying noise (unit energy, independent per ear), so the
 // kernel's DRR is exactly the requested one. s scales the box to TargetRms and then applies the interval's
-// roving gain, which the click shares. The plan with sources: AudioSweep/SONA Proposal 1.2 implementation plan.md.
+// roving gain, which the click shares. The sweep matches Explore's default room: a 5 x 6 m floor in front of the
+// listener, with the wave reaching its far corner (6.5 m) at the end of the sweep.
+// The plan with sources: AudioSweep/SONA Proposal 1.2 implementation plan.md.
 using System;
 using System.Collections.Generic;
 
@@ -16,7 +18,8 @@ namespace Sona.Core
     {
         public int SampleRate = 48000;          // the headset's rate (ProjectSettings > Audio); the app passes the real one
         public double SweepDuration = 1.2;      // s: the delay at Far
-        public double Far = 5.0;                // m
+        public double FloorWidth = 5.0;         // m: Explore's default room, listener at the middle of its near edge
+        public double FloorDepth = 6.0;         // m
         public double FoveationExponent = 0.5;  // delay ~ distance^p; the pilot tunes p to match the two cues
         public double ReferenceDistance = 2.0;  // m: the middle of the standards (near face of the box)
         public double StandardJitter = 0.175;   // ln units either side of the reference (Negen et al. 2023)
@@ -33,6 +36,9 @@ namespace Sona.Core
         public double ClickAmplitude = 0.5;
         public double EarHeight = 1.2;          // m, seated
         public ulong NoiseSeed = 1;
+
+        /// <summary>Where the wave ends: the floor's far corner (6.5 m), as Explore sizes its sweep to the farthest point.</summary>
+        public double Far { get { return SonaMath.Hypot(FloorWidth / 2.0, FloorDepth); } }
 
         public EncodingParams Encoding()
         {

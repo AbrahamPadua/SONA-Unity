@@ -308,9 +308,10 @@ static partial class Program
             Console.WriteLine(string.Format("  study: box {0} ms, box + tail {1} ms, interval {2} ms, built in {3} ms",
                 1000 * st.DryFrames / sp.SampleRate, 1000 * st.BoxFrames / sp.SampleRate, 1000 * st.IntervalFrames / sp.SampleRate, watch.ElapsedMilliseconds));
 
-            Check(Math.Abs(sp.DelaySeconds(2.0) - 1.2 * Math.Sqrt(0.4)) < 1e-12 && Math.Abs(sp.DrrDb(2.0) - 5.0) < 1e-12
+            Check(sp.Far == 6.5 && Math.Abs(sp.DelaySeconds(2.0) - 1.2 * Math.Sqrt(2.0 / 6.5)) < 1e-12 && Math.Abs(sp.DrrDb(2.0) - 5.0) < 1e-12
                   && Math.Abs(sp.DrrDb(4.0) - (5.0 - 20.0 * Math.Log10(2.0))) < 1e-12,
-                  "study: delay is 759 ms at 2 m; DRR is +5 dB at 2 m and 6.02 dB lower at 4 m");
+                  string.Format("study: the wave reaches Explore's far corner (6.5 m) at 1.2 s, so delay is {0:0} ms at 2 m; DRR is +5 dB at 2 m and 6.02 dB lower at 4 m",
+                                1000 * sp.DelaySeconds(2.0)));
 
             int gap = (int)Math.Round(sp.TailGap * sp.SampleRate);
             Func<double[], int, double> windowDb = (n, at) =>
@@ -405,7 +406,7 @@ static partial class Program
             bool threw = false;
             try { int o; StudyTrials.Plan(sp, delayOnly, maxFar + 0.01, +1, new StudyRandom(3), out o); }
             catch (ArgumentOutOfRangeException) { threw = true; }
-            Check(Math.Abs(maxFar - (Math.Log(2.5) - 0.175)) < 1e-12 && threw,
+            Check(Math.Abs(maxFar - (Math.Log(sp.Far / 2.0) - 0.175)) < 1e-12 && threw,
                   string.Format("study: a farther delay shift stops at {0:F3} ln units (box would leave the sweep), and Plan refuses more", maxFar));
 
             var prng = new StudyRandom(11);
