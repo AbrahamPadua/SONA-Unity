@@ -199,6 +199,176 @@ static partial class Program
         Check(kw.Matches48k(), "audit: the K-weighting filter reproduces the BS.1770 coefficients at 48 kHz");
     }
 
+    // Proposal 1.3's gate before anyone listens: every trial of the frozen bank, rendered as it plays (floor tone on), and
+    // again without the floor tone to measure the box. Also writes the bank for Tools/SonaStudy/observers.py.
+    static void BankAudit(string outDir)
+    {
+        var sp = new StudyParams();
+        var st = new StudyStimulus(sp);
+        var kw = new KWeighting(sp.SampleRate);
+        CultureInfo inv = CultureInfo.InvariantCulture;
+        BankTrial[] bank = StudyBank.Build(sp);
+        int firstDry = 0;
+        while (st.Dry[firstDry * 2] == 0.0 && st.Dry[firstDry * 2 + 1] == 0.0) firstDry++;
+        double det = st.DryEnergy * st.WetEnergy - st.CrossEnergy * st.CrossEnergy;
+
+        var csv = new StringBuilder("index,direction,u_sweep,u_drr,k,size,sign,odd,reference_ln,catch\n");
+        string[] names = { "gain", "peak", "level", "K-level", "box window", "duration" };
+        int nf = names.Length;
+        // The click and floor tone share the gain, so a listener can hear the box against them. With the roving taken out an
+        // ideal observer finds any difference, so these are reported as the odd interval's largest difference in dB instead.
+        string[] freeNames = { "peak", "level", "box window" };
+        var free = new Dictionary<string, double[]>();
+        var on = new float[st.IntervalFrames * 2];
+        var off = new float[st.IntervalFrames * 2];
+        bool onsetsOk = true;
+        double worstDrr = 0.0, worstRmsDb = 0.0, worstFloor = 0.0, offsetLo = double.PositiveInfinity, offsetHi = double.NegativeInfinity, maxPeak = 0.0;
+        var hits = new Dictionary<string, int[]>();   // per direction: trials, then hits and counted trials per feature
+        var order = new List<string>();
+        var pooled = new int[2 * nf];
+        double worstFree = 0.0;
+
+        foreach (BankTrial b in bank)
+        {
+            csv.Append(string.Format(inv, "{0},{1},{2:R},{3:R},{4:R},{5:R},{6},{7},{8:R},{9}\n",
+                b.Index, b.Direction, b.US, b.UR, b.K, b.Size, b.Sign, b.Odd, b.Reference, b.Catch ? 1 : 0));
+            var f = new double[nf, 3];
+            for (int j = 0; j < 3; j++)
+            {
+                StudyInterval played = b.Intervals[j], box = b.Intervals[j];
+                box.Ground = false;
+                Array.Clear(on, 0, on.Length);
+                Array.Clear(off, 0, off.Length);
+                st.Render(ref played, on, 0);
+                st.Render(ref box, off, 0);
+                double g = Math.Pow(10.0, played.GainDb / 20.0);
+
+                // The box alone: onset, DRR and level.
+                long m = st.LeadFrames + st.Click.Length;
+                while (off[m * 2] == 0f && off[m * 2 + 1] == 0f) m++;
+                onsetsOk &= m - firstDry == box.BoxSample && box.BoxSample == st.LeadFrames + (long)Math.Round(box.Onset * sp.SampleRate);
+                long at = box.BoxSample * 2;
+                double yd = 0.0, yw = 0.0;
+                for (int i = 0; i < st.Wet.Length; i++)
+                {
+                    yd += off[at + i] * (i < st.Dry.Length ? st.Dry[i] : 0.0);
+                    yw += off[at + i] * st.Wet[i];
+                }
+                double alpha = (yd * st.WetEnergy - yw * st.CrossEnergy) / det, beta = (st.DryEnergy * yw - st.CrossEnergy * yd) / det;
+                worstDrr = Math.Max(worstDrr, Math.Abs(20.0 * Math.Log10(alpha / beta) - box.DrrDb));
+                offsetLo = Math.Min(offsetLo, box.SignalDrrDb - box.DrrDb);
+                offsetHi = Math.Max(offsetHi, box.SignalDrrDb - box.DrrDb);
+                worstRmsDb = Math.Max(worstRmsDb, Math.Abs(20.0 * Math.Log10(box.BoxRms / g / sp.TargetRms)));
+
+                // The floor tone is the same in every interval apart from the gain.
+                long fs = st.LeadFrames * 2L;
+                for (long i = 0; i < on.Length; i++)
+                {
+                    double want = i >= fs && i - fs < st.Floor.Length ? g * st.FloorScale * st.Floor[i - fs] : 0.0;
+                    worstFloor = Math.Max(worstFloor, Math.Abs(on[i] - off[i] - want));
+                }
+
+                // What a listener could use besides the two cues, measured from the interval as played.
+                double all = 0.0, window = 0.0;
+                long last = on.Length / 2 - 1;
+                while (last > 0 && on[last * 2] == 0f && on[last * 2 + 1] == 0f) last--;
+                for (long i = 0; i < on.Length; i++) all += (double)on[i] * on[i];
+                for (int i = 0; i < st.Wet.Length; i++) window += (double)on[at + i] * on[at + i];
+                maxPeak = Math.Max(maxPeak, played.Peak);
+                f[0, j] = played.GainDb;
+                f[1, j] = 20.0 * Math.Log10(played.Peak);
+                f[2, j] = 10.0 * Math.Log10(all / on.Length);
+                f[3, j] = 10.0 * Math.Log10(kw.MeanSquare(on, 0, st.IntervalFrames));
+                f[4, j] = 10.0 * Math.Log10(window / st.Wet.Length);
+                f[5, j] = last / (double)sp.SampleRate;
+            }
+
+            string dir = b.Direction;
+            int[] h;
+            if (!hits.TryGetValue(dir, out h)) { hits[dir] = h = new int[1 + 2 * nf]; order.Add(dir); free[dir] = new double[freeNames.Length]; }
+            h[0]++;
+            int s1 = (b.Odd + 1) % 3, s2 = (b.Odd + 2) % 3;
+            for (int q = 0; q < freeNames.Length; q++)
+            {
+                int k = q == 0 ? 1 : q == 1 ? 2 : 4;
+                Func<int, double> net = j => f[k, j] - b.Intervals[j].GainDb;
+                double diff = Math.Abs(net(b.Odd) - 0.5 * (net(s1) + net(s2)));
+                free[dir][q] = Math.Max(free[dir][q], diff);
+                // As above: the peak is the DRR cue where DRR changes, and the box's window on the floor tone is its timing.
+                if ((q == 0 && b.UR == 0.0) || q == 1 || (q == 2 && b.US == 0.0)) worstFree = Math.Max(worstFree, diff);
+            }
+            for (int k = 0; k < nf; k++)
+            {
+                // The peak follows the DRR, and the duration is the box's timing, so each counts only where its cue stays put.
+                if ((k == 1 && b.UR != 0.0) || (k == 5 && b.US != 0.0)) continue;
+                int pick = 0;
+                double best = -1.0;
+                for (int j = 0; j < 3; j++)
+                {
+                    double gap = Math.Abs(f[k, j] - 0.5 * (f[k, (j + 1) % 3] + f[k, (j + 2) % 3]));
+                    if (gap > best) { best = gap; pick = j; }
+                }
+                int hit = pick == b.Odd ? 1 : 0;
+                h[1 + 2 * k] += hit;
+                h[2 + 2 * k]++;
+                pooled[2 * k] += hit;
+                pooled[2 * k + 1]++;
+            }
+        }
+
+        string csvPath = Path.Combine(outDir, "study_bank.csv");
+        File.WriteAllText(csvPath, csv.ToString());
+        Console.WriteLine(string.Format(inv, "  bank audit: {0} trials, floor tone on, at {1} Hz; wrote {2}", bank.Length, sp.SampleRate, csvPath));
+        Check(onsetsOk, "bank audit: every box starts on its planned sample (measured with the floor tone removed)");
+        Check(worstDrr < 0.1 && offsetHi - offsetLo < 0.1,
+              string.Format(inv, "bank audit: kernel DRR within 0.1 dB of target (worst {0:E1} dB); the rendered box's DRR sits a fixed {1:F2} dB off it (spread {2:E1} dB)",
+                            worstDrr, 0.5 * (offsetLo + offsetHi), offsetHi - offsetLo));
+        Check(worstRmsDb < 0.1, string.Format(inv, "bank audit: every box plays at the target RMS plus its gain (worst {0:E1} dB)", worstRmsDb));
+        Check(worstFloor < 1e-6, string.Format(inv, "bank audit: the floor tone is identical in every interval apart from the gain (worst {0:E1})", worstFloor));
+        Check(maxPeak < 1.0, string.Format(inv, "bank audit: nothing clips (highest peak {0:F3})", maxPeak));
+
+        Console.WriteLine("        odd-one-out accuracy of a nuisance-only observer, floor tone on (chance = 0.333; '-' = that cue changes there)");
+        var head = new StringBuilder("        direction        trials");
+        foreach (string nm in names) head.Append(string.Format(inv, " {0,10}", nm));
+        Console.WriteLine(head.ToString());
+        bool leakOk = true;
+        string worst = "";
+        double worstExcess = double.NegativeInfinity;
+        Func<int, int, string, string> cellText = (hit, n, label) =>
+        {
+            if (n == 0) return string.Format(inv, " {0,10}", "-");
+            double acc = hit / (double)n, limit = 1.0 / 3.0 + 3.0 * Math.Sqrt(2.0 / 9.0 / n);
+            leakOk &= acc <= limit;
+            if (acc - limit > worstExcess) { worstExcess = acc - limit; worst = string.Format(inv, "{0}: {1:F3} against {2:F3}", label, acc, limit); }
+            return string.Format(inv, " {0,10:F3}", acc);
+        };
+        foreach (string dir in order)
+        {
+            int[] h = hits[dir];
+            var row = new StringBuilder(string.Format(inv, "        {0,-16} {1,6}", dir, h[0]));
+            for (int k = 0; k < nf; k++) row.Append(cellText(h[1 + 2 * k], h[2 + 2 * k], names[k] + " in " + dir));
+            Console.WriteLine(row.ToString());
+        }
+        var all228 = new StringBuilder(string.Format(inv, "        {0,-16} {1,6}", "whole bank", bank.Length));
+        for (int k = 0; k < nf; k++) all228.Append(cellText(pooled[2 * k], pooled[2 * k + 1], names[k] + " over the whole bank"));
+        Console.WriteLine(all228.ToString());
+        Check(leakOk, "bank audit: no nuisance feature picks the odd interval above chance, per direction or over the whole bank (closest: " + worst + ")");
+
+        Console.WriteLine("        with the roving taken out: the odd interval's largest level difference from the standards, dB");
+        var freeHead = new StringBuilder("        direction       ");
+        foreach (string nm in freeNames) freeHead.Append(string.Format(inv, " {0,10}", nm));
+        Console.WriteLine(freeHead.ToString());
+        foreach (string dir in order)
+        {
+            var row = new StringBuilder(string.Format(inv, "        {0,-16}", dir));
+            foreach (double v in free[dir]) row.Append(string.Format(inv, " {0,10:F3}", v));
+            Console.WriteLine(row.ToString());
+        }
+        Console.WriteLine("        (the box window is where the box sits on the floor tone, so it moves with the sweep cue; the peak moves with DRR)");
+        Check(worstFree < 0.1, string.Format(inv, "bank audit: with the roving taken out, no level, peak or box-window difference of 0.1 dB or more " +
+                                                  "except where it follows a cue that changes (worst {0:F3} dB)", worstFree));
+    }
+
     // ITU-R BS.1770 K-weighting (high shelf, then high-pass), designed for any rate the way libebur128 does it.
     sealed class KWeighting
     {

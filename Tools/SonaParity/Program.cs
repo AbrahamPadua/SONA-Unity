@@ -637,6 +637,7 @@ static partial class Program
         }
 
         StudyAudit(outDir);
+        BankAudit(outDir);
 
         Console.WriteLine(s_failures == 0 ? "C# CHECKS: ALL PASS" : ("C# CHECKS: " + s_failures + " FAILED"));
         return s_failures == 0 ? 0 : 1;
