@@ -419,8 +419,8 @@ static partial class Program
                 oddCounts[odd]++;
                 int s1 = (odd + 1) % 3, s2 = (odd + 2) % 3;
                 shapeOk &= ivs[s1].DelayDistance == ivs[s2].DelayDistance && ivs[s1].DrrDb == ivs[s2].DrrDb
-                           && Math.Abs(Math.Log(ivs[odd].DelayDistance / ivs[s1].DelayDistance) - sign * 0.3) < 1e-9
-                           && Math.Abs(Math.Log(ivs[odd].DrrDistance / ivs[s1].DrrDistance) - sign * 0.3) < 1e-9;
+                           && Math.Abs(Math.Log(ivs[odd].DelayDistance / ivs[s1].DelayDistance) - sign * 0.3 * Math.Sqrt(0.5)) < 1e-9
+                           && Math.Abs(Math.Log(ivs[odd].DrrDistance / ivs[s1].DrrDistance) - sign * 0.3 * Math.Sqrt(0.5)) < 1e-9;
                 foreach (StudyInterval iv in ivs) gainsOk &= Math.Abs(iv.GainDb) <= sp.RoveDb;
             }
             Check(shapeOk && gainsOk && oddCounts[0] > 900 && oddCounts[1] > 900 && oddCounts[2] > 900,
@@ -503,6 +503,112 @@ static partial class Program
             foreach (StudyInterval gi in StudyTrials.TrainingSchedule(gsp, 5, new StudyRandom(4))) groundPlans &= gi.Ground;
             foreach (StudyInterval gi in StudyTrials.Plan(sp, congruent, 0.3, 1, new StudyRandom(4), out groundOdd)) groundPlans &= !gi.Ground;
             Check(groundPlans, "study: with Ground on, every interval with a click gets the ground sound and DRR-only intervals never do; off by default");
+
+            // Proposal 1.3: unit directions and the frozen bank.
+            BankDirection[] dirs = StudyBank.Directions(sp);
+            bool unitOk = dirs.Length == 6;
+            foreach (StudyCondition c in StudyCondition.All) unitOk &= Math.Abs(c.KDelay * c.KDelay + c.KDrr * c.KDrr - 1.0) < 1e-12;
+            foreach (BankDirection d in dirs) unitOk &= Math.Abs(d.US * d.US + d.UR * d.UR - 1.0) < 1e-12;
+            double kStar = sp.OpposingRatio, wCancel = kStar / (1.0 + kStar);
+            unitOk &= dirs[3].K == kStar / 2.0 && dirs[4].K == kStar && dirs[5].K == 2.0 * kStar
+                      && Math.Abs(wCancel * dirs[4].US + (1.0 - wCancel) * dirs[4].UR) < 1e-12;
+            Check(unitOk, string.Format("study: every direction is a unit vector, matching is (1, 1)/sqrt(2), and opposing k* = {0} cancels for weight k*/(1 + k*)", kStar));
+
+            BankTrial[] bank = StudyBank.Build(sp);
+            var cells = new Dictionary<string, int[]>();
+            var posRef = new int[3, 3];
+            int catches = 0;
+            bool bankShape = bank.Length == 228;
+            for (int t = 0; t < bank.Length; t++)
+            {
+                BankTrial b = bank[t];
+                bankShape &= b.Index == t;
+                StudyInterval o = b.Intervals[b.Odd], s1 = b.Intervals[(b.Odd + 1) % 3], s2 = b.Intervals[(b.Odd + 2) % 3];
+                double std = sp.ReferenceDistance * Math.Exp(b.Reference);
+                bankShape &= s1.DelayDistance == s2.DelayDistance && s1.DrrDistance == s2.DrrDistance && Math.Abs(s1.DelayDistance / std - 1.0) < 1e-12
+                             && Math.Abs(s1.DrrDistance / std - 1.0) < 1e-12
+                             && Math.Abs(Math.Log(o.DelayDistance / std) - b.Sign * b.Size * b.US) < 1e-12
+                             && Math.Abs(Math.Log(o.DrrDistance / std) - b.Sign * b.Size * b.UR) < 1e-12;
+                foreach (StudyInterval iv in b.Intervals)
+                    bankShape &= iv.Click && iv.Ground && !double.IsPositiveInfinity(iv.DrrDb) && Math.Abs(iv.GainDb) <= sp.RoveDb
+                                 && Math.Abs(iv.Onset - sp.DelaySeconds(iv.DelayDistance)) < 1e-12 && Math.Abs(iv.DrrDb - sp.DrrDb(iv.DrrDistance)) < 1e-12;
+                if (b.Catch) { catches++; continue; }
+                string key = b.Direction + "/" + b.Size + "/" + b.Sign;
+                int[] n;
+                if (!cells.TryGetValue(key, out n)) cells[key] = n = new int[7];
+                n[0]++;
+                n[1 + b.Odd]++;
+                n[4 + Array.IndexOf(sp.BankReferences, b.Reference)]++;
+                posRef[b.Odd, Array.IndexOf(sp.BankReferences, b.Reference)]++;
+            }
+            bool balanced = cells.Count == 36 && catches == 12;
+            foreach (int[] n in cells.Values) balanced &= n[0] == 6 && n[1] == 2 && n[2] == 2 && n[3] == 2 && n[4] == 2 && n[5] == 2 && n[6] == 2;
+            foreach (int v in posRef) balanced &= v == 24;
+            BankTrial[] again = StudyBank.Build(sp), order = StudyBank.Shuffled(bank, 101), other = StudyBank.Shuffled(bank, 102);
+            bool frozen = true, moved = false, sameOrder = true;
+            var seen = new bool[bank.Length];
+            for (int t = 0; t < bank.Length; t++)
+            {
+                for (int j = 0; j < 3; j++) frozen &= again[t].Intervals[j].GainDb == bank[t].Intervals[j].GainDb && again[t].Odd == bank[t].Odd;
+                seen[order[t].Index] = true;
+                moved |= order[t].Index != t;
+                sameOrder &= order[t].Index == other[t].Index;
+            }
+            Check(bankShape && balanced && frozen && moved && !sameOrder && Array.TrueForAll(seen, x => x),
+                  "study: the bank is 216 trials (6 directions x 3 sizes x 2 signs x 3 odd positions x 2 repeats) plus 12 catch trials, " +
+                  "each cell hears each reference twice and each odd position meets each reference 24 times, every interval has the click, " +
+                  "floor tone and room, the gains are frozen, and each visit's shuffle plays every trial once");
+            bool tooBig = false;
+            try { StudyBank.Build(new StudyParams { PairedSizes = new[] { 0.3, 0.6, 3.0 } }); }
+            catch (ArgumentException) { tooBig = true; }
+            Check(tooBig, "study: a bank size that leaves the sweep or the DRR range is refused when the bank is built");
+
+            StudyInterval[] checks = StudyTrials.DistanceChecks(sp, new StudyRandom(8));
+            var sweepTargets = new List<double>();
+            var drrTargets = new List<double>();
+            bool checksOk = checks.Length == 2 * sp.CheckTargets;
+            foreach (StudyInterval iv in checks)
+            {
+                checksOk &= Math.Abs(iv.GainDb) <= sp.RoveDb;
+                if (iv.Click)
+                {
+                    sweepTargets.Add(iv.DelayDistance);
+                    checksOk &= iv.Ground && iv.DrrDistance == sp.ReferenceDistance && iv.DrrDb == sp.DrrAtReference && iv.Onset == sp.DelaySeconds(iv.DelayDistance);
+                }
+                else
+                {
+                    drrTargets.Add(iv.DrrDistance);
+                    checksOk &= !iv.Ground && double.IsNaN(iv.DelayDistance) && iv.Onset >= minOnset && iv.Onset <= sp.SweepDuration
+                                && Math.Abs(iv.DrrDb - sp.DrrDb(iv.DrrDistance)) < 1e-12;
+                }
+            }
+            sweepTargets.Sort();
+            drrTargets.Sort();
+            double checkStep = Math.Log(sp.Far / sp.MinDistance) / sp.CheckTargets;
+            checksOk &= sweepTargets.Count == sp.CheckTargets && drrTargets.Count == sp.CheckTargets;
+            for (int i = 0; checksOk && i < sp.CheckTargets; i++)
+                checksOk = sweepTargets[i] == drrTargets[i] && Math.Abs(Math.Log(sweepTargets[i] / sp.MinDistance) - (i + 0.5) * checkStep) < 1e-9;
+            Check(checksOk, string.Format("study: distance checks play {0} targets from {1} to {2} m once with the sweep cue alone (click and floor tone, " +
+                                          "DRR held at the reference) and once with DRR alone (no click, no floor tone, random onset)", sp.CheckTargets, sp.MinDistance, sp.Far));
+
+            StudyInterval[][] pairs = StudyTrials.Pairs(sp, new StudyRandom(9));
+            int sweepPairs = 0, sweepFirst = 0, drrFirst = 0;
+            bool pairsOk = pairs.Length == 2 * sp.PairsPerCue;
+            foreach (StudyInterval[] pr in pairs)
+            {
+                int far = StudyTrials.Farther(pr);
+                StudyInterval a = pr[1 - far], b = pr[far];
+                bool sweep = a.Click;
+                if (sweep) { sweepPairs++; if (far == 0) sweepFirst++; }
+                else if (far == 0) drrFirst++;
+                double ratio = sweep ? b.DelayDistance / a.DelayDistance : b.DrrDistance / a.DrrDistance;
+                double nearest = sweep ? a.DelayDistance : a.DrrDistance, farthest = sweep ? b.DelayDistance : b.DrrDistance;
+                pairsOk &= b.Click == sweep && Math.Abs(Math.Log(ratio) - sp.PairStep) < 1e-12 && nearest >= sp.MinDistance && farthest <= sp.Far + 1e-9
+                           && (sweep ? a.Ground && a.DrrDb == sp.DrrAtReference : !a.Ground && double.IsNaN(a.DelayDistance));
+            }
+            Check(pairsOk && sweepPairs == sp.PairsPerCue && sweepFirst == sp.PairsPerCue / 2 && drrFirst == sp.PairsPerCue / 2,
+                  string.Format("study: pilot pairs: {0} per cue, {1:0.00}x apart on the floor line, the farther one first in half of each cue's pairs",
+                                sp.PairsPerCue, Math.Exp(sp.PairStep)));
 
             // Staircases: Negen's rule against Negen's own psychometric function (eq. 1, s = 0.15).
             Func<int, double, double> longRun = (upSteps, cap) =>

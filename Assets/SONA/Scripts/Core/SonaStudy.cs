@@ -1,4 +1,4 @@
-// SONA Quest port: stimuli for the Proposal 1.2 study (does the learned delay cue fuse with DRR?).
+// SONA Quest port: stimuli for the Proposal 1.2 and 1.3 studies (does the learned sweep cue combine with DRR?).
 //
 // One box waveform is rendered once and reused, because re-encoding the box at each distance would also
 // change its duration and level. Each interval is a click at Lead, then the box at Lead + onset:
@@ -8,9 +8,12 @@
 // roving gain, which the click shares. The sweep matches Explore's default room: a 5 x 6 m floor in front of the
 // listener, with the wave reaching its far corner (6.5 m) at the end of the sweep. With Ground on, intervals with a
 // click also play that floor's low sweep from the click on, at its level relative to the dry box in the app's own mix.
-// The plan with sources: AudioSweep/SONA Proposal 1.2 implementation plan.md.
+// Moves are unit vectors in (x_S, x_R) = (ln delay distance, ln DRR distance) relative to 2 m, so a size is the length
+// of the move. Proposal 1.3's frozen bank (StudyBank) replaces the staircases in the main study; the staircases stay for
+// the pilot. The plan with sources: AudioSweep/SONA Proposal 1.2 implementation plan.md; the 1.3 Protocol tab.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Sona.Core
 {
@@ -38,6 +41,18 @@ namespace Sona.Core
         public double EarHeight = 1.2;          // m, seated
         public ulong NoiseSeed = 1;
         public bool Ground;                     // also play SONA's ground sound in intervals with a click
+
+        // Proposal 1.3. Sizes and k* are placeholders until the pilot sets them; then they are frozen for the study.
+        public double OpposingRatio = 2.0;                       // k*: pilot geometric mean of T_R / T_S; opposing uses k*/2, k*, 2k*
+        public double[] SweepAxisSizes = { 0.2, 0.4, 0.6 };     // ln units along the direction
+        public double[] DrrAxisSizes = { 0.5, 1.0, 1.5 };
+        public double[] PairedSizes = { 0.3, 0.6, 0.9 };        // matching and all three opposing ratios, so they compare at equal size
+        public double[] BankReferences = { -0.10, 0.0, 0.10 };  // ln offsets of the standard from ReferenceDistance
+        public int BankRepeats = 2;
+        public ulong BankSeed = 13;                               // the bank's frozen gains
+        public int CheckTargets = 12;                             // distance checks per cue
+        public int PairsPerCue = 30;                              // pilot "which is farther?" pairs
+        public double PairStep = 0.6931;                          // ln ratio inside a pilot pair; placeholder: a factor of 2
 
         /// <summary>Where the wave ends: the floor's far corner (6.5 m), as Explore sizes its sweep to the farthest point.</summary>
         public double Far { get { return SonaMath.Hypot(FloorWidth / 2.0, FloorDepth); } }
@@ -73,7 +88,7 @@ namespace Sona.Core
         public double Peak;
     }
 
-    /// <summary>A design cell: the odd interval moves by sign * delta * (KDelay, KDrr) in ln distance.</summary>
+    /// <summary>A design cell: the odd interval moves by sign * delta * (KDelay, KDrr), a unit vector, in ln distance.</summary>
     public struct StudyCondition
     {
         public string Name;
@@ -88,8 +103,8 @@ namespace Sona.Core
             new StudyCondition { Name = "drr-only", KDelay = 0, KDrr = 1, Room = true, Click = false },
             new StudyCondition { Name = "delay-axis", KDelay = 1, KDrr = 0, Room = true, Click = true },
             new StudyCondition { Name = "drr-axis", KDelay = 0, KDrr = 1, Room = true, Click = true },
-            new StudyCondition { Name = "congruent", KDelay = 1, KDrr = 1, Room = true, Click = true },
-            new StudyCondition { Name = "opposite", KDelay = 1, KDrr = -1, Room = true, Click = true },
+            new StudyCondition { Name = "congruent", KDelay = Math.Sqrt(0.5), KDrr = Math.Sqrt(0.5), Room = true, Click = true },
+            new StudyCondition { Name = "opposite", KDelay = Math.Sqrt(0.5), KDrr = -Math.Sqrt(0.5), Room = true, Click = true },
         };
     }
 
@@ -332,11 +347,10 @@ namespace Sona.Core
         public static StudyInterval[] TrainingSchedule(StudyParams p, int targets, StudyRandom rng)
         {
             if (targets < 1) throw new ArgumentOutOfRangeException("targets", "need at least one target");
-            double lo = Math.Log(p.MinDistance), hi = Math.Log(p.Far);
             var trials = new StudyInterval[2 * targets];
             for (int i = 0; i < trials.Length; i++)
             {
-                double d = Math.Exp(lo + (i / 2 + 0.5) / targets * (hi - lo));
+                double d = Target(p.MinDistance, p.Far, targets, i / 2);
                 bool paired = i % 2 == 1;
                 trials[i] = new StudyInterval
                 {
@@ -349,14 +363,186 @@ namespace Sona.Core
                     Ground = p.Ground,
                 };
             }
-            for (int i = trials.Length - 1; i > 0; i--)
+            Shuffle(trials, rng);
+            return trials;
+        }
+
+        /// <summary>
+        /// Proposal 1.3's distance checks (no feedback): CheckTargets distances spaced like training, each once with the
+        /// sweep cue alone and once with DRR alone, shuffled.
+        /// </summary>
+        public static StudyInterval[] DistanceChecks(StudyParams p, StudyRandom rng)
+        {
+            var trials = new StudyInterval[2 * p.CheckTargets];
+            for (int i = 0; i < trials.Length; i++)
+                trials[i] = Isolated(p, Target(p.MinDistance, p.Far, p.CheckTargets, i / 2), i % 2 == 0, rng);
+            Shuffle(trials, rng);
+            return trials;
+        }
+
+        /// <summary>
+        /// The pilot's "which is farther?" pairs: PairsPerCue per cue, PairStep apart in ln distance, the nearer one spaced
+        /// evenly so the farther one stays on the floor line, the farther one first in half of each cue's pairs. Shuffled.
+        /// </summary>
+        public static StudyInterval[][] Pairs(StudyParams p, StudyRandom rng)
+        {
+            var pairs = new StudyInterval[2 * p.PairsPerCue][];
+            for (int i = 0; i < pairs.Length; i++)
+            {
+                bool sweep = i % 2 == 0;
+                double near = Target(p.MinDistance, p.Far * Math.Exp(-p.PairStep), p.PairsPerCue, i / 2);
+                StudyInterval a = Isolated(p, near, sweep, rng), b = Isolated(p, near * Math.Exp(p.PairStep), sweep, rng);
+                pairs[i] = i / 2 % 2 == 0 ? new[] { b, a } : new[] { a, b };
+            }
+            Shuffle(pairs, rng);
+            return pairs;
+        }
+
+        /// <summary>Which of a pilot pair's two intervals is farther by the cue it carries.</summary>
+        public static int Farther(StudyInterval[] pair)
+        {
+            return pair[0].Click ? (pair[0].DelayDistance > pair[1].DelayDistance ? 0 : 1) : (pair[0].DrrDistance > pair[1].DrrDistance ? 0 : 1);
+        }
+
+        // One cue at distance d. The sweep cue keeps the click and floor tone with DRR held at the reference; DRR alone has
+        // neither and a random onset, so timing says nothing.
+        static StudyInterval Isolated(StudyParams p, double d, bool sweep, StudyRandom rng)
+        {
+            double dDrr = sweep ? p.ReferenceDistance : d;
+            return new StudyInterval
+            {
+                Click = sweep,
+                Ground = sweep,
+                DelayDistance = sweep ? d : double.NaN,
+                Onset = sweep ? p.DelaySeconds(d) : rng.Uniform(p.DelaySeconds(p.MinDistance), p.SweepDuration),
+                DrrDistance = dDrr,
+                DrrDb = p.DrrDb(dDrr),
+                GainDb = rng.Uniform(-p.RoveDb, p.RoveDb),
+            };
+        }
+
+        // Target i of n, evenly spaced in ln distance between lo and hi (cell centres).
+        static double Target(double lo, double hi, int n, int i) { return lo * Math.Exp((i + 0.5) / n * Math.Log(hi / lo)); }
+
+        internal static void Shuffle<T>(T[] a, StudyRandom rng)
+        {
+            for (int i = a.Length - 1; i > 0; i--)
             {
                 int j = rng.Next(i + 1);
-                StudyInterval t = trials[i];
-                trials[i] = trials[j];
-                trials[j] = t;
+                T t = a[i];
+                a[i] = a[j];
+                a[j] = t;
             }
-            return trials;
+        }
+    }
+
+    /// <summary>One direction of the bank: a unit vector (US, UR) in (x_S, x_R) and its sizes.</summary>
+    public struct BankDirection
+    {
+        public string Name;
+        public double US, UR;
+        public double K;          // opposing ratio; 0 for the axes and matching
+        public double[] Sizes;
+    }
+
+    /// <summary>One trial of Proposal 1.3's frozen bank.</summary>
+    public sealed class BankTrial
+    {
+        public int Index;                 // position in the frozen bank, before the visit's shuffle
+        public string Direction;
+        public double US, UR, K, Size;
+        public int Sign, Odd, Repeat;
+        public double Reference;          // ln offset of the standard from ReferenceDistance
+        public bool Catch;
+        public StudyInterval[] Intervals; // three; copy before rendering, so the bank stays as built
+    }
+
+    public static class StudyBank
+    {
+        /// <summary>Sweep axis, DRR axis, matching and the three opposing ratios k*/2, k*, 2k*.</summary>
+        public static BankDirection[] Directions(StudyParams p)
+        {
+            double h = Math.Sqrt(0.5);
+            var dirs = new List<BankDirection>
+            {
+                new BankDirection { Name = "sweep-axis", US = 1.0, UR = 0.0, Sizes = p.SweepAxisSizes },
+                new BankDirection { Name = "drr-axis", US = 0.0, UR = 1.0, Sizes = p.DrrAxisSizes },
+                new BankDirection { Name = "matching", US = h, UR = h, Sizes = p.PairedSizes },
+            };
+            foreach (double k in new[] { p.OpposingRatio / 2.0, p.OpposingRatio, 2.0 * p.OpposingRatio })
+            {
+                double n = Math.Sqrt(1.0 + k * k);
+                dirs.Add(new BankDirection { Name = "opposing-" + k.ToString("0.00", CultureInfo.InvariantCulture), US = 1.0 / n, UR = -k / n, K = k, Sizes = p.PairedSizes });
+            }
+            return dirs.ToArray();
+        }
+
+        /// <summary>
+        /// The frozen bank: direction x size x sign x odd position x repeat, with the references rotated so every cell and
+        /// every odd position hears each reference equally often (not crossed). Then the catch trials: both axes, both signs,
+        /// every odd position, at the largest move the sounds allow from the middle reference. Gains come from BankSeed.
+        /// Throws if any trial would leave the sweep or the DRR range, so a pilot setting that does not fit is caught at once.
+        /// </summary>
+        public static BankTrial[] Build(StudyParams p)
+        {
+            var rng = new StudyRandom(p.BankSeed);
+            var trials = new List<BankTrial>();
+            BankDirection[] dirs = Directions(p);
+            int cell = 0, refs = p.BankReferences.Length;
+            foreach (BankDirection d in dirs)
+                foreach (double size in d.Sizes)
+                    foreach (int sign in new[] { 1, -1 })
+                    {
+                        for (int rep = 0; rep < p.BankRepeats; rep++)
+                            for (int odd = 0; odd < 3; odd++)
+                                trials.Add(Make(p, d, size, sign, odd, rep, p.BankReferences[(odd + rep + cell) % refs], false, trials.Count, rng));
+                        cell++;
+                    }
+            double ln10 = Math.Log(10.0);
+            for (int axis = 0; axis < 2; axis++)
+                foreach (int sign in new[] { 1, -1 })
+                {
+                    double size = axis == 0
+                        ? (sign > 0 ? Math.Log(p.Far / p.ReferenceDistance) : Math.Log(p.ReferenceDistance / p.MinDistance))
+                        : (sign > 0 ? p.DrrAtReference - p.MinDrrDb : p.MaxDrrDb - p.DrrAtReference) / 20.0 * ln10;
+                    for (int odd = 0; odd < 3; odd++) trials.Add(Make(p, dirs[axis], size, sign, odd, 0, 0.0, true, trials.Count, rng));
+                }
+            return trials.ToArray();
+        }
+
+        /// <summary>The bank in one visit's order.</summary>
+        public static BankTrial[] Shuffled(BankTrial[] bank, ulong seed)
+        {
+            var order = (BankTrial[])bank.Clone();
+            StudyTrials.Shuffle(order, new StudyRandom(seed));
+            return order;
+        }
+
+        static BankTrial Make(StudyParams p, BankDirection d, double size, int sign, int odd, int rep, double reference, bool isCatch,
+                              int index, StudyRandom rng)
+        {
+            var t = new BankTrial
+            {
+                Index = index, Direction = isCatch ? "catch-" + d.Name : d.Name, US = d.US, UR = d.UR, K = d.K, Size = size,
+                Sign = sign, Odd = odd, Repeat = rep, Reference = reference, Catch = isCatch, Intervals = new StudyInterval[3],
+            };
+            double standard = p.ReferenceDistance * Math.Exp(reference);
+            const double tol = 1e-9;
+            for (int j = 0; j < 3; j++)
+            {
+                double move = j == odd ? sign * size : 0.0;
+                double dS = standard * Math.Exp(move * d.US), dR = standard * Math.Exp(move * d.UR), drr = p.DrrDb(dR);
+                if (dS < p.MinDistance * (1.0 - tol) || dS > p.Far * (1.0 + tol) || drr < p.MinDrrDb - tol || drr > p.MaxDrrDb + tol)
+                    throw new ArgumentException(string.Format(CultureInfo.InvariantCulture,
+                        "bank: {0} at size {1:0.###} ({2}) from reference {3:+0.00;-0.00;0.00} leaves the sweep or the DRR range",
+                        t.Direction, size, sign > 0 ? "+" : "-", reference));
+                t.Intervals[j] = new StudyInterval
+                {
+                    Click = true, Ground = true, DelayDistance = dS, Onset = p.DelaySeconds(dS), DrrDistance = dR, DrrDb = drr,
+                    GainDb = rng.Uniform(-p.RoveDb, p.RoveDb),
+                };
+            }
+            return t;
         }
     }
 
