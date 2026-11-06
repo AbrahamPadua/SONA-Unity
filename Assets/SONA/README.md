@@ -91,7 +91,7 @@ Each tab opens a popup above the bar; press the tab again to close it.
 |---|---|
 | Mode | Explore, Challenge, Study |
 | Trial | Next box, Reveal box, Blackout. Next box starts Challenge if you are in Explore |
-| Study | Participant number, session (1 to 5), start a block (Fusion, Single cues, Cue axes, Training), Stop, Ground on/off. The text below shows where each staircase stands |
+| Study | Participant number, session (1 to 5), a Main row (Bank, Training, Distance, Question) and a Pilot row (Fusion, Single cues, Cue axes, Pairs) of blocks, Stop, Ground on/off. The text below shows the block's progress and where each staircase stands |
 | Sweep | Sweep now, Repeat, Slower/Faster (0.5x to 2x). Research row: renderer (Stereo or HRTF), pitch (follows height or fixed), Diagnostics |
 | Room | Walls: no walls (default), open (3), closed (4). Size: 4 x 4, 5 x 6, 8 x 10 m. Light: dark (default), lit. Objects: Reset |
 | Help | The controls and what each mode is for |
@@ -118,47 +118,73 @@ an update built on another computer. Copy the log with:
 adb pull /sdcard/Android/data/com.DefaultCompany.SONAquest/files/sona_challenge_log_v2.csv
 ```
 
-## Study mode (Proposal 1.2)
+## Study mode (Proposals 1.2 and 1.3)
 
-Study runs the listening test of Proposal 1.2: does the learned delay cue fuse with the direct-to-reverberant
-ratio (DRR)? The participant sits facing forward with wired headphones in the headset. There are no sweeps
-in this mode. Each trial plays one box sound per interval, built so that only its onset delay and its DRR
-carry distance (`Core/SonaStudy.cs`). The calculations and their sources are in
-`AudioSweep/SONA Proposal 1.2 implementation plan.md`.
+Study runs the listening test of Proposal 1.3: after training, does SONA's learned sweep cue combine with the
+direct-to-reverberant ratio (DRR)? The participant sits facing forward with wired headphones in the headset.
+There are no live sweeps in this mode. Each trial plays pre-rendered sweeps of one box, built so that only the
+box's timing and its DRR carry distance (`Core/SonaStudy.cs`). The design is in the Protocol tab of
+Proposal 1.3, and the calculations and their sources are in `AudioSweep/SONA Proposal 1.2 implementation plan.md`.
 
-1. Open the menu, choose the Study tab, and set the participant number and the session.
-2. Press a block under Start. The menu closes and the block begins. The first time you enter Study the app
-   prepares the sounds, which takes a few seconds on the headset.
+1. Open the menu, choose the Study tab, and set the participant number and the session (the visit).
+2. Press a block. The menu closes and the block begins. The first time you enter Study the app prepares the
+   sounds, which takes a few seconds on the headset.
 3. Hand the controller over. The HUD says what to do; it changes only between trials.
+
+The Main row is a visit of Proposal 1.3. Test visits (1, 4 and 5) run Bank, Distance and Question; training
+visits (2 and 3) run Training, Distance and Question.
 
 | Block | What the participant does |
 |---|---|
-| Fusion | Three sounds, one different. Point at the sphere for the odd one and pull the trigger. No feedback. Staircases for congruent and opposite changes, both directions |
-| Single cues | The same task with delay alone (no reverb) or DRR alone (no click, random onset) |
-| Cue axes | The same task with both cues present, but only one of them changing |
-| Training | One sound. Point at the floor line where the box starts. The box then appears with the error in percent. Half the trials carry delay alone, half delay with DRR |
+| Bank | Three sweeps, one different. Point at the sphere for the odd one and pull the trigger. No feedback. 228 trials, about 36 minutes |
+| Training | One sweep. Point at the floor line where the box starts. The box then appears with the error in percent. 240 trials: half with the sweep cue alone, half with DRR agreeing |
+| Distance | One sound, answered on the floor line as in training but with no feedback. 12 with the sweep cue alone (DRR held at its 2 m value) and 12 with DRR alone (no click, no floor tone, random onset) |
+| Question | One question on the HUD: did the distances sound like something out there (left sphere) or like a sound pattern translated into a distance (right sphere)? |
 
-Each oddity block runs four interleaved staircases of 65 trials (`trialsPerStaircase` on the SONA Study
+The Pilot row is for the pilot only:
+
+| Block | What the participant does |
+|---|---|
+| Fusion, Single cues, Cue axes | The oddity task run by staircases: congruent and opposite changes; delay alone (no reverb) or DRR alone (no click, random onset); both cues present with only one changing. The pilot uses them to set the bank's sizes and k* |
+| Pairs | Two sounds: which box was farther? Left sphere for the first, right for the second. 30 pairs per cue, each cue alone as in the distance checks, the two distances a factor of 2 apart (`PairStep`, a placeholder) |
+
+Every test visit plays the same bank of 228 trials. Distances are ln(d / 2 m) for each cue, and the odd
+sweep moves along one of six unit directions: the sweep axis, the DRR axis, matching (1, 1)/sqrt(2), and
+opposing (1, -k)/sqrt(1 + k^2) for k = k*/2, k* and 2k*. Each direction has 3 sizes, 2 signs, 3 odd positions
+and 2 repeats, which makes 216 trials. The two standards sit at 2 m times e^-0.1, 1 or e^0.1, rotated so that
+every cell and every odd position meets each reference equally often. Twelve catch trials move as far along
+each axis as the sounds allow. The gains are frozen with the bank, and the order is shuffled once per
+participant and visit, so a restarted visit plays the same order again. Every bank interval has the click, the
+floor tone and the room. k* (`OpposingRatio`) and the sizes (`SweepAxisSizes`, `DrrAxisSizes`, `PairedSizes`)
+in `StudyParams` are placeholders: the pilot sets them, and they are then frozen for the study. If a setting
+would push a trial out of the sweep or the DRR range, the block stops with a message instead of playing.
+
+Each staircase block runs four interleaved staircases of 65 trials (`trialsPerStaircase` on the SONA Study
 component) with the rule of Negen et al. (2023): the difference shrinks by 0.9 after a right answer and
 grows by 0.9^-3 after a wrong one, which settles at 75% correct. Each staircase stops growing at the largest
-difference the sounds allow. Training has 120 trials (`trainingTrials`).
+difference the sounds allow. Differences are lengths along a unit direction, so a congruent change of 0.3
+moves each cue by 0.21. Training has 240 trials (`trainingTrials`).
 
 The study's sweep matches Explore's default room: a 5 x 6 m floor in front of you, with the wave reaching
 its far corner (6.5 m) at the end of the 1.2 s sweep, so a box at 2 m sounds 666 ms after the click.
-**Ground** (Study tab, off by default) adds that floor's low sweep, the ground sound from Explore, to every
-interval that has a click. It starts with the click, sounds the same in every interval apart from the level
-roving, and keeps its level relative to the box from the app's own mix. DRR-alone intervals never get it,
-because its start would mark the onset they hide. Like the rest of SONA, the box does not block the floor
-behind it. The setting applies from the next block, so one staircase never mixes trials with and without it.
+Intervals with a click also play that floor's low sweep, the ground sound from Explore. It starts with the
+click, sounds the same in every interval apart from the level roving, and keeps its level relative to the box
+from the app's own mix. DRR-alone intervals never get it, because its start would mark the onset they hide.
+Like the rest of SONA, the box does not block the floor behind it. **Ground** (Study tab, off by default) only
+affects the staircase blocks, so the pilot can compare the floor tone on and off; every other block always
+plays it. The setting applies from the next block, so one staircase never mixes trials with and without it.
 Unlike Explore, the study's sounds are pre-rendered, so they do not follow your head.
 
-Pressing Menu pauses the block, and so does taking the headset off. The trial in progress is thrown away
-and a new one starts when the menu closes. Each answered trial is appended to `sona_study_log.csv`, next to
-the challenge log: participant, session, block, condition, staircase difference, the odd interval, the
-answer, reaction time, and for every interval its delay distance, DRR, onset, gain, level, peak and onset
-sample. It also records the sample rate, the headset's media volume step, where the sound went (`wired`,
-`bluetooth` or `speaker`) and whether the ground sound played, so a bumped volume button or a session without
-headphones shows up in the data.
+Pressing Menu pauses the block, and so does taking the headset off. In a staircase block the trial in
+progress is thrown away and a new one starts when the menu closes; in the other blocks the same trial plays
+again. Each answered trial is appended to `sona_study_log.csv`, next to the challenge log: participant,
+session, block, condition, the difference (staircase value or bank size), sign, unit direction, the bank's
+reference, catch flag and trial number, the odd interval, the answer, reaction time, the target and answered
+distance for floor-line answers, and for every interval its delay distance, DRR, onset, gain, level, peak and
+onset sample. For Pairs, the odd interval is the farther sound; for the question, answer 1 is "out there" and
+2 is "translated". It also records the sample rate, the headset's media volume step, where the sound went
+(`wired`, `bluetooth` or `speaker`) and whether the ground sound played, so a bumped volume button or a
+session without headphones shows up in the data.
 If a newer build changes the columns, the old file is kept as `sona_study_log_old_<date>.csv` and a new one
 starts. Copy the logs off with `adb pull` after every visit, like the challenge log.
 
@@ -196,7 +222,7 @@ with the Python defaults (near 0.4 m, sqrt foveation, 18 dB periphery, 0.14 s gr
 | audio_player.py | `Runtime/SonaStereoRenderer.cs` (real-time mixer on Unity's audio thread) |
 | render.py | `GranularRenderer.RenderOffline` in `Core/SonaGranular.cs` |
 | (new) HRTF rendering | `Core/SonaClusterer.cs`, `Runtime/SonaHrtfRenderer.cs` |
-| (new) Proposal 1.2 study | `Core/SonaStudy.cs`, `Core/SonaStaircase.cs`, `Runtime/SonaStudyController.cs` |
+| (new) Proposal 1.2 and 1.3 study | `Core/SonaStudy.cs`, `Core/SonaStaircase.cs`, `Runtime/SonaStudyController.cs`; observer simulations in `Tools/SonaStudy/observers.py` |
 
 Everything in `Scripts/Core` is plain C# with no Unity dependency, like the Python encoder.
 
@@ -217,7 +243,19 @@ rotated objects, at 0.5x, 1x and 1.5x speed):
   9,600 trials finds no level, loudness or onset feature that picks out the odd interval, and no peak
   feature when only the delay changes. Where the DRR changes, the box's peak moves with it (at the same
   level, a box that is mostly reverb peaks up to 1.5 dB higher), so the audit counts the peak as part of
-  the DRR cue.
+  the DRR cue;
+- the bank holds 216 trials and 12 catch trials, balanced as described above, and a second audit renders all
+  228 as they play, floor tone on. Every box starts on its planned sample, the DRR and level match their
+  requests to within 1e-7 dB (the rendered box's DRR sits a fixed 0.99 dB off its request, the same in every
+  interval), and the floor tone is identical in every interval apart from the gain. No gain, level or loudness
+  feature picks out the odd interval, nor does the peak where the DRR stays fixed or the duration where the
+  timing stays fixed. With the gain taken out, the odd
+  interval's whole level differs from the standards by under 0.001 dB. Only the level in the box's own window
+  changes (up to 2.2 dB, 3.7 dB on catch trials), and only where the timing changes, because the box then sits
+  on a different part of the floor tone. Whether that matters to a listener is the pilot's floor-tone check.
+
+The parity harness also writes the bank to `cs_out/study_bank.csv`, which `Tools/SonaStudy/observers.py`
+reads to simulate the four observer models on the trials the headset plays.
 
 The harness is in `Tools/SonaParity` (outside Assets, so Unity ignores it).
 
