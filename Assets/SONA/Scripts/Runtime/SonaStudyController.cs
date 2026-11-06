@@ -1,10 +1,12 @@
-// SONA Quest port: the Study mode for Proposal 1.2 (does the learned delay cue fuse with DRR?).
+// SONA Quest port: the Study mode for Proposals 1.2 and 1.3 (does the learned sweep cue combine with DRR?).
 //
 // Seated and head-locked: Core (SonaStudy.cs) renders each trial into one buffer, played as a single AudioClip,
-// so every onset is sample-exact. Nothing visible changes while a trial plays. Oddity blocks run Negen's
-// interleaved staircases and take the answer on three spheres; training plays one sound, takes a distance on a
-// floor line and then shows where the box was. Opening the menu or taking the headset off pauses the block and
-// throws away the trial in progress. Every answered trial is appended to sona_study_log.csv.
+// so every onset is sample-exact. Nothing visible changes while a trial plays. The Bank block plays Proposal 1.3's
+// frozen oddity bank; the pilot's staircase blocks run Negen's interleaved staircases. Both take the answer on three
+// spheres. Training and the distance checks play one sound and take a distance on a floor line; only training then
+// shows where the box was. Pairs (pilot) and the end-of-visit question take the answer on two spheres. Opening the
+// menu or taking the headset off pauses the block; the trial in progress is thrown away (staircases) or played
+// again (bank, lists). Every answered trial is appended to sona_study_log.csv.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -19,10 +21,14 @@ namespace Sona
     public enum StudyBlock
     {
         None,
-        Fusion,       // congruent and opposite changes, both signs (Negen et al. 2023's four tracks)
-        SingleCues,   // delay alone (dry) and DRR alone (no click), both signs
-        CueAxes,      // one cue changes while the other stays, both cues present, both signs
-        Training,     // one sound, distance answer, feedback
+        Fusion,         // pilot: congruent and opposite changes, both signs (Negen et al. 2023's four tracks)
+        SingleCues,     // pilot: delay alone (dry) and DRR alone (no click), both signs
+        CueAxes,        // pilot: one cue changes while the other stays, both cues present, both signs
+        Training,       // one sound, distance answer, feedback; floor tone on
+        Bank,           // Proposal 1.3's frozen oddity bank, floor tone on, no feedback
+        DistanceCheck,  // one cue at a time, distance answer, no feedback
+        Pairs,          // pilot: two sounds, which box was farther, no feedback
+        Question,       // end of visit: did the distances sound out there or translated?
     }
 
     [AddComponentMenu("SONA/SONA Study")]
@@ -31,8 +37,8 @@ namespace Sona
         public SonaSweepController controller;
         [Tooltip("Trials per staircase in an oddity block (Negen et al. 2023 used 65).")]
         [Min(1)] public int trialsPerStaircase = 65;
-        [Tooltip("Training trials: half delay alone, half delay with DRR.")]
-        [Min(2)] public int trainingTrials = 120;
+        [Tooltip("Training trials per visit: half the sweep cue alone, half with DRR agreeing (Proposal 1.3: 240).")]
+        [Min(2)] public int trainingTrials = 240;
         [Tooltip("Silence after a trial before answers are taken (s).")]
         public float answerDelay = 0.2f;
         [Tooltip("Pause between an answer and the next trial (s).")]
@@ -42,7 +48,8 @@ namespace Sona
         public string logFileName = "sona_study_log.csv";
         public int participant = 1;
         public int session = 1;
-        [Tooltip("Also play SONA's ground sound (the floor's low sweep) in every interval with a click. Applies from the next block.")]
+        [Tooltip("Pilot staircase blocks: also play SONA's ground sound (the floor's low sweep) in every interval with a click. " +
+                 "Applies from the next block. The other blocks always play it where there is a click.")]
         public bool groundSound;
 
         enum Phase { Idle, Waiting, Playing, Answering, Feedback, Paused, Done }
@@ -72,7 +79,11 @@ namespace Sona
         StudyRandom _rng;
         ulong _seed;
         readonly List<Track> _tracks = new List<Track>();
-        StudyInterval[] _training;
+        StudyInterval[] _single;     // training or distance checks: one interval per trial
+        BankTrial[] _bank;           // this visit's order
+        BankTrial _bankTrial;
+        StudyInterval[][] _pairs;
+        string _blockError;
         int _done;
         int _total;
         Track _track;
@@ -142,7 +153,9 @@ namespace Sona
             if (block == StudyBlock.None) return;
             _block = block;
             _done = 0;
-            _seed = (ulong)DateTime.UtcNow.Ticks;
+            _blockError = null;
+            // The bank's order is fixed per participant and visit, so a restarted visit plays the same order.
+            _seed = block == StudyBlock.Bank ? (ulong)(participant * 100 + session) : (ulong)DateTime.UtcNow.Ticks;
             _rng = new StudyRandom(_seed);
             _waitingForSounds = _stimulus == null;
             if (!_waitingForSounds) BeginBlock();
@@ -155,7 +168,9 @@ namespace Sona
             _phase = Phase.Idle;
             _waitingForSounds = false;
             _tracks.Clear();
-            _training = null;
+            _single = null;
+            _bank = null;
+            _pairs = null;
             ShowObjects();
         }
 
@@ -166,29 +181,64 @@ namespace Sona
         void BeginBlock()
         {
             _waitingForSounds = false;
-            _params.Ground = groundSound;   // fixed for the whole block, so a staircase never mixes the two
+            // Fixed for the whole block, so a staircase never mixes the two; Proposal 1.3's blocks always have the floor tone.
+            _params.Ground = !IsStaircase(_block) || groundSound;
             _tracks.Clear();
-            if (_block == StudyBlock.Training)
+            try
             {
-                _training = StudyTrials.TrainingSchedule(_params, Mathf.Max(1, trainingTrials / 2), _rng);
-                _total = _training.Length;
-            }
-            else
-            {
-                foreach (StudyCondition c in StudyCondition.All)
+                switch (_block)
                 {
-                    if (!InBlock(c, _block)) continue;
-                    foreach (int sign in new[] { 1, -1 })
-                    {
-                        double cap = StudyTrials.MaxDelta(_params, c, sign);
-                        _tracks.Add(new Track { Condition = c, Sign = sign, Stairs = new Staircase(0.2, 0.9, 3, cap, trialsPerStaircase) });
-                    }
+                    case StudyBlock.Training:
+                        _single = StudyTrials.TrainingSchedule(_params, Mathf.Max(1, trainingTrials / 2), _rng);
+                        _total = _single.Length;
+                        break;
+                    case StudyBlock.DistanceCheck:
+                        _single = StudyTrials.DistanceChecks(_params, _rng);
+                        _total = _single.Length;
+                        break;
+                    case StudyBlock.Bank:
+                        _bank = StudyBank.Shuffled(StudyBank.Build(_params), _seed);
+                        _total = _bank.Length;
+                        break;
+                    case StudyBlock.Pairs:
+                        _pairs = StudyTrials.Pairs(_params, _rng);
+                        _total = _pairs.Length;
+                        break;
+                    case StudyBlock.Question:
+                        _total = 1;
+                        break;
+                    default:
+                        foreach (StudyCondition c in StudyCondition.All)
+                        {
+                            if (!InBlock(c, _block)) continue;
+                            foreach (int sign in new[] { 1, -1 })
+                            {
+                                double cap = StudyTrials.MaxDelta(_params, c, sign);
+                                _tracks.Add(new Track { Condition = c, Sign = sign, Stairs = new Staircase(0.2, 0.9, 3, cap, trialsPerStaircase) });
+                            }
+                        }
+                        _total = _tracks.Count * trialsPerStaircase;
+                        break;
                 }
-                _total = _tracks.Count * trialsPerStaircase;
+            }
+            catch (ArgumentException e)
+            {
+                // A pilot setting that does not fit the sounds (Build checks every bank trial): say so instead of starting.
+                Debug.LogError("[SONA] Could not start the block: " + e.Message);
+                StopBlock();
+                _blockError = "Could not start the block: " + e.Message;
+                return;
             }
             PlaceObjects();
             Wait(interTrialPause);
         }
+
+        static bool IsStaircase(StudyBlock b) { return b == StudyBlock.Fusion || b == StudyBlock.SingleCues || b == StudyBlock.CueAxes; }
+
+        bool Pointing { get { return _block == StudyBlock.Training || _block == StudyBlock.DistanceCheck; } }
+
+        /// <summary>Spheres to answer on: three for oddity, two (first and second, or the question's two answers) otherwise.</summary>
+        int Choices { get { return _block == StudyBlock.Pairs || _block == StudyBlock.Question ? 2 : 3; } }
 
         static bool InBlock(StudyCondition c, StudyBlock block)
         {
@@ -209,6 +259,10 @@ namespace Sona
                 case StudyBlock.SingleCues: return "Single cues";
                 case StudyBlock.CueAxes: return "Cue axes";
                 case StudyBlock.Training: return "Training";
+                case StudyBlock.Bank: return "Bank";
+                case StudyBlock.DistanceCheck: return "Distance";
+                case StudyBlock.Pairs: return "Pairs";
+                case StudyBlock.Question: return "Question";
                 default: return "No block";
             }
         }
@@ -253,7 +307,7 @@ namespace Sona
                     if (AudioSettings.dspTime >= _answerDsp) OpenAnswers();
                     break;
                 case Phase.Answering:
-                    if (_block != StudyBlock.Training) HoverSpheres();
+                    if (!Pointing) HoverSpheres();
                     break;
                 case Phase.Feedback:
                     if (Time.unscaledTime >= _phaseUntil)
@@ -295,16 +349,7 @@ namespace Sona
         void NextTrial()
         {
             _hint = null;
-            if (_block == StudyBlock.Training)
-            {
-                if (_done >= _training.Length)
-                {
-                    Finish();
-                    return;
-                }
-                _intervals = new[] { _training[_done] };
-            }
-            else
+            if (IsStaircase(_block))
             {
                 List<Track> open = _tracks.FindAll(t => !t.Stairs.Done);
                 if (open.Count == 0)
@@ -314,6 +359,36 @@ namespace Sona
                 }
                 _track = open[_rng.Next(open.Count)];
                 _intervals = StudyTrials.Plan(_params, _track.Condition, _track.Stairs.Value, _track.Sign, _rng, out _odd);
+            }
+            else
+            {
+                if (_done >= _total)
+                {
+                    Finish();
+                    return;
+                }
+                // Lists play trial _done; a paused trial was never answered, so it plays again.
+                switch (_block)
+                {
+                    case StudyBlock.Bank:
+                        _bankTrial = _bank[_done];
+                        _intervals = (StudyInterval[])_bankTrial.Intervals.Clone();
+                        _odd = _bankTrial.Odd;
+                        break;
+                    case StudyBlock.Pairs:
+                        _intervals = (StudyInterval[])_pairs[_done].Clone();
+                        _odd = StudyTrials.Farther(_intervals);
+                        break;
+                    case StudyBlock.Question:
+                        _intervals = new StudyInterval[0];
+                        _volume = MediaVolume();
+                        _output = OutputDevice();
+                        OpenAnswers();
+                        return;
+                    default:
+                        _intervals = new[] { _single[_done] };
+                        break;
+                }
             }
             Play(_stimulus.RenderTrial(_intervals));
             _phase = Phase.Playing;
@@ -359,7 +434,7 @@ namespace Sona
         {
             if (_phase != Phase.Answering) return;
             SonaPointer p = controller != null ? controller.pointer : null;
-            if (_block == StudyBlock.Training)
+            if (Pointing)
             {
                 Vector3 hit;
                 if (p != null && p.RayToPlane(FloorY, out hit))
@@ -376,34 +451,48 @@ namespace Sona
             }
             for (int k = 0; k < 3; k++)
             {
-                if (p != null && p.HitCollider != null && p.HitCollider.transform == _spheres[k])
+                if (p != null && p.HitCollider != null && p.HitCollider.transform == _spheres[k] && _spheres[k].gameObject.activeSelf)
                 {
-                    Answer(k);
+                    Answer(Choices == 3 ? k : k / 2);   // two choices use the outer spheres: left 0, right 1
                     return;
                 }
             }
-            _hint = "Point at one of the three spheres";
+            _hint = Choices == 3 ? "Point at one of the three spheres" : "Point at the left or the right sphere";
         }
 
-        /// <summary>Oddity answer: which interval (0, 1 or 2) sounded different.</summary>
-        public void Answer(int interval)
+        /// <summary>
+        /// Sphere answer: which interval (0, 1 or 2) sounded different; in Pairs, which sound (0 or 1) was farther; for the
+        /// question, 0 = out there, 1 = a translated pattern.
+        /// </summary>
+        public void Answer(int choice)
         {
-            if (_phase != Phase.Answering || _block == StudyBlock.Training || interval < 0 || interval > 2) return;
-            double delta = _track.Stairs.Value;
-            bool correct = interval == _odd;
-            _track.Stairs.Update(correct);
+            if (_phase != Phase.Answering || Pointing || choice < 0 || choice >= Choices) return;
+            bool correct = choice == _odd;
+            double delta = double.NaN;
+            if (IsStaircase(_block))
+            {
+                delta = _track.Stairs.Value;
+                _track.Stairs.Update(correct);
+            }
+            else if (_block == StudyBlock.Bank) delta = _bankTrial.Size;
             _done++;
-            Log(delta, interval, correct, double.NaN);
-            Wait(interTrialPause);
+            Log(delta, choice, correct, double.NaN);
+            if (_block == StudyBlock.Question) Finish();
+            else Wait(interTrialPause);
         }
 
-        /// <summary>Training answer: how far ahead the box starts, in metres.</summary>
+        /// <summary>Training and distance-check answer: how far ahead the box starts, in metres.</summary>
         public void AnswerDistance(float metres)
         {
-            if (_phase != Phase.Answering || _block != StudyBlock.Training) return;
-            double target = _intervals[0].DelayDistance;
+            if (_phase != Phase.Answering || !Pointing) return;
             _done++;
             Log(double.NaN, -1, false, metres);
+            if (_block == StudyBlock.DistanceCheck)
+            {
+                Wait(interTrialPause);   // no feedback: the checks measure what the cue says before anyone corrects it
+                return;
+            }
+            double target = _intervals[0].DelayDistance;
             double error = 100.0 * (metres - target) / target;
             _feedback = string.Format(CultureInfo.InvariantCulture, "The box was at {0:0.0} m. You were {1:0}% too {2}.",
                                       target, Math.Abs(error), error >= 0 ? "far" : "near");
@@ -426,7 +515,7 @@ namespace Sona
             if (_block != StudyBlock.None) sb.AppendFormat("  ·  {0}  ·  {1} of {2}", BlockLabel(_block), _done, _total);
             sb.Append("</b>\n");
             if (_buildError != null) sb.Append(_buildError);
-            else if (_block == StudyBlock.None) sb.Append(_stimulus == null ? "Preparing the sounds..." : "No block running");
+            else if (_block == StudyBlock.None) sb.Append(_blockError ?? (_stimulus == null ? "Preparing the sounds..." : "No block running"));
             else if (_waitingForSounds) sb.Append("Preparing the sounds...");
             else
             {
@@ -434,12 +523,16 @@ namespace Sona
                 {
                     case Phase.Waiting:
                     case Phase.Playing:
-                        sb.Append(_block == StudyBlock.Training ? "Listen" : "Listen to the three sounds");
+                        sb.Append(_block == StudyBlock.Question ? "" : Pointing ? "Listen" : Choices == 2 ? "Listen to the two sounds" : "Listen to the three sounds");
                         break;
                     case Phase.Answering:
-                        sb.Append(_block == StudyBlock.Training
-                            ? "Point at the floor where the box starts, then " + trigger
-                            : "Which sound was different? Point at its sphere, then " + trigger);
+                        if (Pointing) sb.Append("Point at the floor where the box starts, then " + trigger);
+                        else if (_block == StudyBlock.Pairs)
+                            sb.Append("Which box was farther? Left sphere: the first sound. Right sphere: the second. Then " + trigger);
+                        else if (_block == StudyBlock.Question)
+                            sb.Append("Today, did the distances sound like something out there (left sphere), or like a sound pattern " +
+                                      "you translated into a distance (right sphere)? Point, then " + trigger);
+                        else sb.Append("Which sound was different? Point at its sphere, then " + trigger);
                         if (_hint != null) sb.Append('\n').Append(_hint);
                         break;
                     case Phase.Feedback:
@@ -462,7 +555,7 @@ namespace Sona
         public string MenuStatus()
         {
             if (_buildError != null) return _buildError;
-            if (_block == StudyBlock.None) return _stimulus == null && _building != null ? "Preparing the sounds..." : "No block running";
+            if (_block == StudyBlock.None) return _blockError ?? (_stimulus == null && _building != null ? "Preparing the sounds..." : "No block running");
             var sb = new StringBuilder();
             sb.AppendFormat("{0}: {1} of {2} trials{3}", BlockLabel(_block), _done, _total, _phase == Phase.Done ? ", done" : "");
             foreach (Track t in _tracks)
@@ -551,14 +644,15 @@ namespace Sona
         void ShowObjects()
         {
             if (_objects == null) return;
-            bool oddity = _block != StudyBlock.None && _block != StudyBlock.Training && !_waitingForSounds;
+            bool spheres = _block != StudyBlock.None && !Pointing && !_waitingForSounds;
+            bool pointing = Pointing && !_waitingForSounds;
             bool training = _block == StudyBlock.Training && !_waitingForSounds;
             for (int k = 0; k < 3; k++)
             {
-                _spheres[k].gameObject.SetActive(oddity && _phase != Phase.Done);
+                _spheres[k].gameObject.SetActive(spheres && _phase != Phase.Done && (Choices == 3 || k != 1));
                 Tint(_spheres[k].GetComponent<Renderer>(), _phase == Phase.Answering ? SphereOpen : SphereLocked);
             }
-            _line.gameObject.SetActive(training && _phase != Phase.Done);
+            _line.gameObject.SetActive(pointing && _phase != Phase.Done);
             _box.gameObject.SetActive(training && _phase == Phase.Feedback);
             _marker.gameObject.SetActive(training && _phase == Phase.Feedback);
         }
@@ -586,8 +680,8 @@ namespace Sona
 
         static string MakeHeader()
         {
-            var sb = new StringBuilder("launch,time,participant,session,block,block_trial,condition,delta,odd,response,correct,rt_s,next_delta,cap_hits," +
-                                       "target_m,response_m,error_pct,sample_rate,media_volume,output,ground,seed");
+            var sb = new StringBuilder("launch,time,participant,session,block,block_trial,condition,delta,sign,u_sweep,u_drr,reference_ln,catch,bank_trial," +
+                                       "odd,response,correct,rt_s,next_delta,cap_hits,target_m,response_m,error_pct,sample_rate,media_volume,output,ground,seed");
             for (int k = 1; k <= 3; k++)
                 sb.AppendFormat(",delay_m_{0},drr_m_{0},onset_s_{0},drr_db_{0},signal_drr_db_{0},gain_db_{0},box_rms_{0},peak_{0},box_sample_{0}", k);
             return sb.ToString();
@@ -596,7 +690,7 @@ namespace Sona
         void Log(double delta, int response, bool correct, double responseMetres)
         {
             var inv = CultureInfo.InvariantCulture;
-            bool training = _block == StudyBlock.Training;
+            bool pointing = Pointing, stairs = IsStaircase(_block), bank = _block == StudyBlock.Bank, scored = !pointing && _block != StudyBlock.Question;
             try
             {
                 if (_logPath == null)
@@ -606,19 +700,31 @@ namespace Sona
                 }
                 var sb = new StringBuilder();
                 if (!File.Exists(_logPath)) sb.Append(Header).Append('\n');
-                StudyInterval first = _intervals[0];
-                string condition = training
-                    ? (double.IsPositiveInfinity(first.DrrDb) ? "train-delay" : "train-paired")
-                    : _track.Name;
+                StudyInterval first = _intervals.Length > 0 ? _intervals[0] : new StudyInterval { DelayDistance = double.NaN, DrrDistance = double.NaN };
+                // What the answer is scored against: the delay distance in training and sweep checks, the DRR distance for DRR checks.
+                double target = !pointing ? double.NaN : first.Click ? first.DelayDistance : first.DrrDistance;
+                string condition;
+                switch (_block)
+                {
+                    case StudyBlock.Training: condition = double.IsPositiveInfinity(first.DrrDb) ? "train-delay" : "train-paired"; break;
+                    case StudyBlock.DistanceCheck: condition = first.Click ? "check-sweep" : "check-drr"; break;
+                    case StudyBlock.Pairs: condition = first.Click ? "pair-sweep" : "pair-drr"; break;
+                    case StudyBlock.Question: condition = "question"; break;
+                    case StudyBlock.Bank: condition = _bankTrial.Direction; break;
+                    default: condition = _track.Name; break;
+                }
                 var cells = new List<string>
                 {
                     _launch, DateTime.Now.ToString("s", inv), participant.ToString(inv), session.ToString(inv), BlockLabel(_block),
                     _done.ToString(inv), condition, Num(delta, "0.00000"),
-                    training ? "" : (_odd + 1).ToString(inv), training ? "" : (response + 1).ToString(inv), training ? "" : (correct ? "1" : "0"),
+                    stairs ? _track.Sign.ToString(inv) : bank ? _bankTrial.Sign.ToString(inv) : "",
+                    stairs ? Num(_track.Condition.KDelay, "0.00000") : bank ? Num(_bankTrial.US, "0.00000") : "",
+                    stairs ? Num(_track.Condition.KDrr, "0.00000") : bank ? Num(_bankTrial.UR, "0.00000") : "",
+                    bank ? Num(_bankTrial.Reference, "0.000") : "", bank ? (_bankTrial.Catch ? "1" : "0") : "", bank ? _bankTrial.Index.ToString(inv) : "",
+                    scored ? (_odd + 1).ToString(inv) : "", pointing ? "" : (response + 1).ToString(inv), scored ? (correct ? "1" : "0") : "",
                     (Time.realtimeSinceStartup - _answersOpenedAt).ToString("0.000", inv),
-                    training ? "" : Num(_track.Stairs.Value, "0.00000"), training ? "" : _track.Stairs.CapHits.ToString(inv),
-                    training ? Num(first.DelayDistance, "0.000") : "", Num(responseMetres, "0.000"),
-                    training ? Num(100.0 * (responseMetres - first.DelayDistance) / first.DelayDistance, "0.0") : "",
+                    stairs ? Num(_track.Stairs.Value, "0.00000") : "", stairs ? _track.Stairs.CapHits.ToString(inv) : "",
+                    Num(target, "0.000"), Num(responseMetres, "0.000"), Num(100.0 * (responseMetres - target) / target, "0.0"),
                     _params.SampleRate.ToString(inv), _volume.ToString(inv), _output, first.Ground ? "1" : "0", _seed.ToString(inv),
                 };
                 for (int k = 0; k < 3; k++)

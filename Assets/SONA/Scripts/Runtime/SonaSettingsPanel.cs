@@ -422,7 +422,7 @@ namespace Sona
             AddButton(screen, () => "Blackout", () => Do(() => c.SetBlackout(true)), () => false);
             _popups[1] = trial;
 
-            // Study (Proposal 1.2). The study component is looked up on use: the controller creates it in Awake.
+            // Study (Proposals 1.2 and 1.3). The study component is looked up on use: the controller creates it in Awake.
             Func<SonaStudyController> studyOf = () => c != null ? c.study : null;
             Popup studyPop = MakePopup("Study", () => studyOf() != null ? studyOf().MenuStatus() : "");
             PopRow who = AddRow(studyPop, () => "Participant");
@@ -435,15 +435,26 @@ namespace Sona
                 int n = i;
                 AddButton(visit, () => n.ToString(), () => Study(x => x.SetSession(n)), () => studyOf() != null && studyOf().session == n);
             }
-            PopRow start = AddRow(studyPop, () => "Start");
-            foreach (StudyBlock b in new[] { StudyBlock.Fusion, StudyBlock.SingleCues, StudyBlock.CueAxes, StudyBlock.Training })
+            // Main: a visit of Proposal 1.3. Pilot: the staircases for range finding and the "which is farther?" pairs.
+            var rows = new[]
             {
-                StudyBlock block = b;
-                AddButton(start, () => SonaStudyController.BlockLabel(block), () => StartStudyBlock(block),
-                          () => studyOf() != null && studyOf().Running && studyOf().Block == block);
+                Tuple.Create("Main", new[] { StudyBlock.Bank, StudyBlock.Training, StudyBlock.DistanceCheck, StudyBlock.Question }),
+                Tuple.Create("Pilot", new[] { StudyBlock.Fusion, StudyBlock.SingleCues, StudyBlock.CueAxes, StudyBlock.Pairs }),
+            };
+            foreach (var r in rows)
+            {
+                string rowLabel = r.Item1;
+                PopRow blocks = AddRow(studyPop, () => rowLabel);
+                foreach (StudyBlock b in r.Item2)
+                {
+                    StudyBlock block = b;
+                    AddButton(blocks, () => SonaStudyController.BlockLabel(block), () => StartStudyBlock(block),
+                              () => studyOf() != null && studyOf().Running && studyOf().Block == block);
+                }
             }
             PopRow stop = AddRow(studyPop, () => "Block");
             AddButton(stop, () => "Stop", () => Study(x => x.StopBlock()), () => false);
+            // Only the pilot staircases follow this; the other blocks always play the floor tone with the click.
             AddButton(stop, () => studyOf() != null && studyOf().groundSound ? "Ground: on" : "Ground: off", () => Study(x => x.ToggleGround()),
                       () => studyOf() != null && studyOf().groundSound);
             _popups[2] = studyPop;
